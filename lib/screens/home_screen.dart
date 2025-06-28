@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:percent_indicator/percent_indicator.dart';
 import '../models/food_item.dart';
 import 'add_food_screen.dart';
+import 'settings_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -72,6 +73,16 @@ class _HomeScreenState extends State<HomeScreen> {
         tooltip: 'Effacer tous les aliments',
         onPressed: _clearFoodItems,
        ),
+       IconButton(
+        icon: const Icon(Icons.settings),
+        tooltip: 'Objectifs',
+        onPressed: () {
+          Navigator.push(
+            context,
+            MaterialPageRoute(builder: (context) => const SettingsScreen()),
+        );
+    },
+  ),
       ],
     ),
       body: Padding(
@@ -89,7 +100,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   Text(formatDouble(totalCalories),
                       style: const TextStyle(
                           fontSize: 28, fontWeight: FontWeight.bold)),
-                  Text('Restantes'),
+                  Text('Calories'),
                 ],
               ),
               footer: Padding(
