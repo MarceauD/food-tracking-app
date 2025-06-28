@@ -25,5 +25,17 @@ class FoodItem {
   double get totalCarbs => (carbsPer100g / 100) * quantity;
   double get totalFat => (fatPer100g / 100) * quantity;
 
-  // toMap() et fromMap() pour SQLite à ajouter plus tard
+
+  FoodItem copyWith ({DateTime ? date}) {
+    return FoodItem(
+      name: name,
+      caloriesPer100g : caloriesPer100g,
+      proteinPer100g : proteinPer100g,
+      fatPer100g : fatPer100g,
+      carbsPer100g: carbsPer100g,
+      date : date ?? this.date,
+      quantity: quantity,
+    );
+ }
+
 }

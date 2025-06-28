@@ -23,11 +23,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   Future<void> _loadGoals() async {
     final prefs = await SharedPreferences.getInstance();
-    setState(() {
-      _caloriesController.text = (prefs.getDouble('goalCalories') ?? 2100).toString();
-      _carbsController.text = (prefs.getDouble('goalCarbs') ?? 258).toString();
-      _proteinController.text = (prefs.getDouble('goalProtein') ?? 103).toString();
-      _fatController.text = (prefs.getDouble('goalFat') ?? 68).toString();
+    if (!mounted) return; // Sécurité : ne pas appeler setState si l'écran est détruit
+      setState(() {
+      _caloriesController.text = (prefs.getDouble('goalCalories') ?? 1700).toString();
+      _carbsController.text = (prefs.getDouble('goalCarbs') ?? 150).toString();
+      _proteinController.text = (prefs.getDouble('goalProtein') ?? 160).toString();
+      _fatController.text = (prefs.getDouble('goalFat') ?? 70).toString();
     });
   }
 
@@ -38,10 +39,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
       await prefs.setDouble('goalCarbs', double.parse(_carbsController.text));
       await prefs.setDouble('goalProtein', double.parse(_proteinController.text));
       await prefs.setDouble('goalFat', double.parse(_fatController.text));
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Objectifs enregistrés')),
-      );
-    }
+
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Objectifs enregistrés')),
+    );
+  }
   }
 
   @override

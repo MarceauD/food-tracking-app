@@ -1,3 +1,5 @@
+import 'package:shared_preferences/shared_preferences.dart';
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import '../models/food_item.dart';
 
@@ -31,6 +33,35 @@ class _AddFoodScreenState extends State<AddFoodScreen> {
     super.dispose();
   }
 
+  Future<void> _addToFavorites(FoodItem item) async {
+    final prefs = await SharedPreferences.getInstance();
+    final List<String> favoriteJsonList = prefs.getStringList('favoriteFoods') ?? [];
+
+    // Convertir l’aliment en Map, puis en JSON string
+    final newItemJson = jsonEncode({
+      'name': item.name,
+      'calories': item.caloriesPer100g,
+      'carbs': item.carbsPer100g,
+      'protein': item.proteinPer100g,
+      'fat': item.fatPer100g,
+      'quantity': item.quantity,
+    });
+
+    // Ajouter uniquement s’il n’existe pas déjà (facultatif)
+    if (!favoriteJsonList.contains(newItemJson)) {
+        favoriteJsonList.add(newItemJson);
+        await prefs.setStringList('favoriteFoods', favoriteJsonList);
+      }
+
+  print('✅ Favori ajouté, fermeture de AddFoodScreen');
+  if(context.mounted) {
+    Navigator.pop(context, {
+      'foodItem': item,
+      'favoriAjoute': true, // ou false selon ce que tu fais
+      });
+    }
+  }
+
   void _submitForm() {
     if (_formKey.currentState!.validate()) {
       final item = FoodItem(
@@ -43,7 +74,11 @@ class _AddFoodScreenState extends State<AddFoodScreen> {
         date: DateTime.now(),
       );
 
-      Navigator.pop(context, item);
+      Navigator.pop(context, {
+      'foodItem': item,
+      'favoriAjoute': false, // ou false selon ce que tu fais
+      });
+      
     }
   }
 
@@ -90,10 +125,36 @@ class _AddFoodScreenState extends State<AddFoodScreen> {
                 onPressed: _submitForm,
                 child: const Text('Ajouter'),
               ),
-            ],
-          ),
+              ElevatedButton.icon(
+                onPressed: () {
+                if (_formKey.currentState!.validate()) {
+                  final item = FoodItem(
+                    name: _nameController.text,
+                    caloriesPer100g: double.parse(_caloriesController.text),
+                    carbsPer100g: double.parse(_carbsController.text),
+                    proteinPer100g: double.parse(_proteinController.text),
+                    fatPer100g: double.parse(_fatController.text),
+                    date: DateTime.now(),
+                    quantity: double.parse(_quantityController.text), //modifier la quantité de l'aliment au moment de l'ajout du favori dans le menu
+                  );
+
+                  _addToFavorites(item);
+
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('Ajouté aux favoris')),
+                  );
+                }
+              },
+                icon: const Icon(Icons.star),
+                label: const Text('Ajouter aux favoris'),
+                style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.orange,
+              ),
+            ),
+          ],
         ),
       ),
-    );
-  }
+    ),
+  );
+} 
 }

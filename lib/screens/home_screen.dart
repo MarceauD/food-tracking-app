@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:percent_indicator/percent_indicator.dart';
 import '../models/food_item.dart';
+import 'dart:convert';
 import 'add_food_screen.dart';
 import 'settings_screen.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -12,6 +14,58 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen> {
   List<FoodItem> foodItems = [];
+  List<FoodItem> _favoriteFoods = [];
+
+  // Valeurs max en dur
+  double goalCalories = 1700;
+  double goalProtein = 160;
+  double goalCarbs = 150;
+  double goalFat = 70;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadGoals();
+    _loadFavoriteFoods();
+  }
+
+  Future<void> _loadFavoriteFoods() async {
+    final prefs = await SharedPreferences.getInstance();
+    final favoriteJsonList = prefs.getStringList('favoriteFoods') ?? [];
+    setState(() {
+      _favoriteFoods = favoriteJsonList.map((itemJson) {
+        final map = jsonDecode(itemJson);
+        return FoodItem(
+          name: map['name'],
+          caloriesPer100g: (map['calories'] as num).toDouble(),
+          carbsPer100g: (map['carbs'] as num).toDouble(),
+          proteinPer100g: (map['protein'] as num).toDouble(),
+          fatPer100g: (map['fat'] as num).toDouble(),
+          quantity: (map['quantity'] as num).toDouble(),
+          date: DateTime.now(),
+        );
+      }).toList();
+
+      print('Favoris chargés :');
+      for (var food in _favoriteFoods) {
+        print(
+          '${food.name ?? "Sans nom"} - ${food.caloriesPer100g} kcal, '
+          '${food.proteinPer100g}g protéines, '
+          '${food.carbsPer100g}g glucides, '
+          '${food.fatPer100g}g lipides');
+      }
+    });
+  }
+
+  Future<void> _loadGoals() async {
+    final prefs = await SharedPreferences.getInstance();
+    setState(() {
+      goalCalories = prefs.getDouble('goalCalories') ?? 2100;
+      goalCarbs = prefs.getDouble('goalCarbs') ?? 258;
+      goalProtein = prefs.getDouble('goalProtein') ?? 103;
+      goalFat = prefs.getDouble('goalFat') ?? 68;
+    });
+  }
 
   // Totaux calculés
   double get totalCalories =>
@@ -23,11 +77,7 @@ class _HomeScreenState extends State<HomeScreen> {
   double get totalFat =>
       foodItems.fold(0, (sum, item) => sum + item.totalFat);
 
-  // Valeurs max en dur
-  final double maxCalories = 1700;
-  final double maxProtein = 160;
-  final double maxCarbs = 150;
-  final double maxFat = 70;
+  
 
   // Fonction de formatage des nombres pour affichage
   String formatDouble(double value) => value.toStringAsFixed(0);
@@ -36,6 +86,10 @@ class _HomeScreenState extends State<HomeScreen> {
     setState((){
       foodItems.add(item);
     });
+  }
+
+  void _addFavoriteToToday (FoodItem item) {
+      _addFoodItem(item.copyWith(date : DateTime.now()));
   }
 
   void _clearFoodItems() {
@@ -93,7 +147,7 @@ class _HomeScreenState extends State<HomeScreen> {
             CircularPercentIndicator(
               radius: 120,
               lineWidth: 14,
-              percent: (totalCalories / maxCalories).clamp(0, 1),
+              percent: (totalCalories / goalCalories).clamp(0, 1),
               center: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
@@ -106,7 +160,7 @@ class _HomeScreenState extends State<HomeScreen> {
               footer: Padding(
                 padding: const EdgeInsets.only(top: 8),
                 child: Text(
-                  '${formatDouble(maxCalories - totalCalories)} restantes',
+                  '${formatDouble(goalCalories - totalCalories)} restantes',
                   style: const TextStyle(fontSize: 14),
                 ),
               ),
@@ -123,22 +177,44 @@ class _HomeScreenState extends State<HomeScreen> {
                 _buildMacroIndicator(
                     label: 'Glucides',
                     value: totalCarbs,
-                    max: maxCarbs,
+                    max: goalCarbs,
                     color: Colors.blue),
                 _buildMacroIndicator(
                     label: 'Protéines',
                     value: totalProtein,
-                    max: maxProtein,
+                    max: goalProtein,
                     color: Colors.red),
                 _buildMacroIndicator(
                     label: 'Lipides',
                     value: totalFat,
-                    max: maxFat,
+                    max: goalFat,
                     color: Colors.orange),
               ],
             ),
-
             const SizedBox(height: 24),
+            if (_favoriteFoods.isNotEmpty) ...[
+                const Text(
+                  'Favoris',
+                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                ),
+                const SizedBox(height: 8),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: _favoriteFoods.map((food) {
+                    return ElevatedButton(
+                      onPressed: () => _addFavoriteToToday(food),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.grey[200],
+                        foregroundColor: Colors.black,
+                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                      ),
+                      child: Text(food.name ?? 'Sans nom'),
+                    );
+                  }).toList(),
+                ),
+                const SizedBox(height: 24),
+              ],
 
             // Liste aliments (tu peux la garder ou ajuster)
             Expanded(
@@ -166,18 +242,30 @@ class _HomeScreenState extends State<HomeScreen> {
                     ),
             ),
           ],
+          
         ),
       ),
       floatingActionButton: FloatingActionButton(
         onPressed: () async {
-          final newItem = await Navigator.push<FoodItem>(
+          final result = await Navigator.push<Map<String, dynamic>>(
             context,
             MaterialPageRoute(
               builder: (context) => const AddFoodScreen(),
             ),
           );
-          if (newItem != null) {
-            _addFoodItem(newItem);
+
+          if (result != null) {
+            final newItem = result['foodItem'] as FoodItem?;
+            final favoriAjoute = result['favoriAjoute'] == true;
+
+            if (newItem != null) {
+              _addFoodItem(newItem);
+            }
+
+            if (favoriAjoute) {
+              if (!mounted) return;
+              await _loadFavoriteFoods(); // Recharge les favoris
+            }
           }
         },
         child: const Icon(Icons.add),
@@ -204,7 +292,7 @@ class _HomeScreenState extends State<HomeScreen> {
               style:
                   TextStyle(fontWeight: FontWeight.bold, color: color, fontSize: 14)),
           progressColor: color,
-          backgroundColor: color.withOpacity(0.3),
+          backgroundColor: color.withAlpha((0.3 * 255).toInt()),
           circularStrokeCap: CircularStrokeCap.round,
         ),
         const SizedBox(height: 8),
