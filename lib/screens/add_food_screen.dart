@@ -105,20 +105,24 @@ class _AddFoodScreenState extends State<AddFoodScreen> {
                 onPressed: _submitForm,
                 child: const Text('Ajouter'),
               ),
-              ElevatedButton.icon(
+               ElevatedButton.icon(
                 onPressed: () {
                 if (_formKey.currentState!.validate()) {
+                  // Le template du favori est basé sur les valeurs pour 100g,
+                  // mais on peut garder la quantité entrée comme suggestion par défaut.
                   final item = FoodItem(
                     name: _nameController.text,
                     caloriesPer100g: double.parse(_caloriesController.text),
                     carbsPer100g: double.parse(_carbsController.text),
                     proteinPer100g: double.parse(_proteinController.text),
                     fatPer100g: double.parse(_fatController.text),
+                    // La quantité sauvegardée ici servira de valeur par défaut dans la popup
+                    quantity: double.parse(_quantityController.text), 
                     date: DateTime.now(),
-                    quantity: double.parse(_quantityController.text), //modifier la quantité de l'aliment au moment de l'ajout du favori dans le menu
                   );
-
-                  _addToFavorites(item);
+                  
+                  // On utilise la méthode du helper qui évite les doublons
+                  DatabaseHelper.instance.createFavorite(item);
 
                   ScaffoldMessenger.of(context).showSnackBar(
                     const SnackBar(content: Text('Ajouté aux favoris')),

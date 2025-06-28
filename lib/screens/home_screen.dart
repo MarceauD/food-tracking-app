@@ -4,16 +4,16 @@ import '../models/food_item.dart';
 import 'add_food_screen.dart';
 import 'settings_screen.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import '../helpers/database_helper.dart'; // Importer le helper
+import '../helpers/database_helper.dart'; 
 
 
-class HomeScreen extends StatefulWidget {
+class HomeScreen extends StatefulWidget  {
   const HomeScreen({super.key});
   @override
   State<HomeScreen> createState() => _HomeScreenState();
 }
 
-class _HomeScreenState extends State<HomeScreen> {
+class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   List<FoodItem> foodItems = [];
   List<FoodItem> _favoriteFoods = [];
 
@@ -27,6 +27,63 @@ class _HomeScreenState extends State<HomeScreen> {
   void initState() {
     super.initState();
     _refreshData();
+    WidgetsBinding.instance.addObserver(this);
+    _checkDateAndResetIfNeeded();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    super.didChangeAppLifecycleState(state);
+    // Si l'état est "resumed", ça veut dire que l'app était en pause et revient
+    if (state == AppLifecycleState.resumed) {
+      _checkDateAndResetIfNeeded();
+    }
+  }
+
+  Future<void> _checkDateAndResetIfNeeded() async {
+    final prefs = await SharedPreferences.getInstance();
+    
+    // 1. Vérifier si l'option est activée
+    final bool autoResetEnabled = prefs.getBool('autoResetEnabled') ?? true;
+    if (!autoResetEnabled) {
+      _refreshData(); // On charge les données sans réinitialiser
+      return;
+    }
+
+    // 2. Récupérer la dernière date de visite
+    final String? lastVisitDateStr = prefs.getString('lastVisitDate');
+    final today = DateTime.now();
+    
+    // On ne garde que la partie "Année-Mois-Jour" pour comparer les jours
+    final todayDateOnly = DateTime(today.year, today.month, today.day);
+
+    // 3. Si c'est la toute première visite, on sauvegarde la date et on continue
+    if (lastVisitDateStr == null) {
+      await prefs.setString('lastVisitDate', todayDateOnly.toIso8601String());
+      _refreshData();
+      return;
+    }
+
+    final lastVisitDate = DateTime.parse(lastVisitDateStr);
+
+    // 4. LA CONDITION CLÉ : Si la dernière visite était avant aujourd'hui
+    if (lastVisitDate.isBefore(todayDateOnly)) {
+      // On vide le journal de la BDD
+      await DatabaseHelper.instance.clearFoodLog();
+      // On met à jour la date de dernière visite à aujourd'hui
+      await prefs.setString('lastVisitDate', todayDateOnly.toIso8601String());
+    } else {
+    }
+    
+    // Dans tous les cas (reset ou pas), on rafraîchit l'affichage
+    _refreshData();
+  }
+
+  @override
+  void dispose() {
+    // Très important de se désabonner pour éviter les fuites de mémoire
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
   }
 
   Future<void> _refreshData() async {
@@ -74,10 +131,110 @@ class _HomeScreenState extends State<HomeScreen> {
   // Fonction de formatage des nombres pour affichage
   String formatDouble(double value) => value.toStringAsFixed(0);
 
+  Future<void> _showDeleteFavoriteDialog(FoodItem favorite) async {
+    // L'ID ne peut pas être null ici car il vient de la BDD
+    final int favoriteId = favorite.id!; 
 
-  void _addFavoriteToToday (FoodItem item) async {
-      await DatabaseHelper.instance.createFoodLog(item);
-      _loadFoodLogFromDb();
+    return showDialog<void>(
+      context: context,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          title: Text('Supprimer le favori ?'),
+          content: Text('Voulez-vous vraiment supprimer "${favorite.name}" de vos favoris ?'),
+          actions: <Widget>[
+            TextButton(
+              child: const Text('Annuler'),
+              onPressed: () {
+                Navigator.of(context).pop();
+              },
+            ),
+            TextButton(
+              style: TextButton.styleFrom(foregroundColor: Colors.red),
+              child: const Text('Supprimer'),
+              onPressed: () async {
+                // On appelle la nouvelle méthode du helper
+                await DatabaseHelper.instance.deleteFavorite(favoriteId);
+                
+                if (context.mounted) {
+                  Navigator.of(context).pop(); // Ferme la popup
+                  _loadFavoriteFoodsFromDb(); // Recharge la liste des favoris pour rafraîchir l'UI
+                }
+              },
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  Future<void> _showQuantityDialog(FoodItem favorite) async {
+    final quantityController = TextEditingController();
+    final formKey = GlobalKey<FormState>();
+
+    // On peut pré-remplir avec la quantité par défaut du favori si elle existe
+    quantityController.text = favorite.quantity?.toStringAsFixed(0) ?? '100';
+
+    return showDialog<void>(
+      context: context,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          title: Text('Quelle quantité ?'),
+          content: Form(
+            key: formKey,
+            child: TextFormField(
+              controller: quantityController,
+              keyboardType: const TextInputType.numberWithOptions(decimal: true),
+              decoration: const InputDecoration(
+                labelText: 'Quantité (g)',
+                suffixText: 'g',
+              ),
+              validator: (value) {
+                if (value == null || value.isEmpty) {
+                  return 'Champ requis';
+                }
+                if (double.tryParse(value) == null || double.parse(value) <= 0) {
+                  return 'Quantité invalide';
+                }
+                return null;
+              },
+              autofocus: true,
+            ),
+          ),
+          actions: <Widget>[
+            TextButton(
+              child: const Text('Annuler'),
+              onPressed: () {
+                Navigator.of(context).pop();
+              },
+            ),
+            ElevatedButton(
+              child: const Text('Ajouter'),
+              onPressed: () async {
+                if (formKey.currentState!.validate()) {
+                  final double newQuantity = double.parse(quantityController.text);
+
+                  // On utilise copyWith pour créer un nouvel item avec la bonne quantité et la date du jour
+                  final itemToLog = favorite.copyWith(
+                    quantity: newQuantity,
+                    date: DateTime.now(),
+                    forceIdToNull: true,
+                  );
+                  
+                  // On insère ce nouvel item dans le journal
+                  await DatabaseHelper.instance.createFoodLog(itemToLog);
+
+                  // On ferme la popup et on rafraîchit la liste
+                  if (context.mounted) {
+                    Navigator.of(context).pop();
+                    _loadFoodLogFromDb();
+                  }
+                }
+              },
+            ),
+          ],
+        );
+      },
+    );
   }
 
   void _clearFoodItems() {
@@ -93,7 +250,7 @@ class _HomeScreenState extends State<HomeScreen> {
               _loadFoodLogFromDb(); // Recharger la liste vide
               Navigator.pop(context);
             },
-            child: const Text('Annuler'),
+            child: const Text('Confirmer'),
           ),
         ],
       ),
@@ -114,11 +271,17 @@ class _HomeScreenState extends State<HomeScreen> {
        IconButton(
         icon: const Icon(Icons.settings),
         tooltip: 'Objectifs',
-        onPressed: () {
-          Navigator.push(
-            context,
-            MaterialPageRoute(builder: (context) => const SettingsScreen()),
-        );
+        onPressed: () async {
+          final result = await Navigator.push(
+                context,
+                MaterialPageRoute(builder: (context) => const SettingsScreen()),
+              );
+
+              // Si le résultat est 'true', cela veut dire qu'on a sauvegardé
+              if (result == true) {
+              // On recharge les objectifs (et tout le reste si besoin)
+              _refreshData(); 
+          }
     },
   ),
       ],
@@ -186,21 +349,29 @@ class _HomeScreenState extends State<HomeScreen> {
                   spacing: 8,
                   runSpacing: 8,
                   children: _favoriteFoods.map((food) {
-                    return ElevatedButton(
-                      onPressed: () => _addFavoriteToToday(food),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.grey[200],
-                        foregroundColor: Colors.black,
-                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                    // On enveloppe le bouton dans un GestureDetector
+                    return GestureDetector(
+                      onLongPress: () {
+                        // L'appui long déclenche la suppression
+                        _showDeleteFavoriteDialog(food);
+                      },
+                      child: ElevatedButton(
+                        // L'appui court (onPressed) garde son comportement normal
+                        onPressed: () => _showQuantityDialog(food),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.grey[200],
+                          foregroundColor: Colors.black,
+                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                        ),
+                        child: Text(food.name ?? 'Sans nom'),
                       ),
-                      child: Text(food.name ?? 'Sans nom'),
                     );
                   }).toList(),
                 ),
                 const SizedBox(height: 24),
               ],
 
-            // Liste aliments (tu peux la garder ou ajuster)
+            
             Expanded(
               child: foodItems.isEmpty
                   ? const Center(child: Text('Aucun aliment ajouté'))

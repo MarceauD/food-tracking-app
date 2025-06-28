@@ -53,7 +53,7 @@ class DatabaseHelper {
       proteinPer100g $realType,
       carbsPer100g $realType,
       fatPer100g $realType,
-      quantity $realType,
+      quantity $realType NOT NULL,
       date TEXT
     )
     ''');
@@ -93,8 +93,29 @@ class DatabaseHelper {
 
   Future<FoodItem> createFavorite(FoodItem item) async {
     final db = await instance.database;
-    await db.insert('favorites', item.toMap());
+
+    final existing = await db.query(
+      'favorites',
+      where: 'name = ?',
+      whereArgs: [item.name],
+      limit: 1, // Pas besoin de chercher plus loin qu'une seule correspondance
+    );
+
+    if (existing.isEmpty) {
+      await db.insert('favorites', item.toMap());
+    }
+    
     return item;
+  }
+
+  Future<int> deleteFavorite(int id) async {
+    final db = await instance.database;
+    
+    return await db.delete(
+      'favorites',
+      where: 'id = ?',
+      whereArgs: [id],
+    );
   }
 
   Future<List<FoodItem>> getFavorites() async {

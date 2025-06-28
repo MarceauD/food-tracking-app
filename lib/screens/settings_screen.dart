@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
 
@@ -15,13 +16,15 @@ class _SettingsScreenState extends State<SettingsScreen> {
   final _proteinController = TextEditingController();
   final _fatController = TextEditingController();
 
+  bool _autoResetEnabled = true;
+
   @override
   void initState() {
     super.initState();
-    _loadGoals();
+    _loadSettings();
   }
 
-  Future<void> _loadGoals() async {
+  Future<void> _loadSettings() async {
     final prefs = await SharedPreferences.getInstance();
     if (!mounted) return; // Sécurité : ne pas appeler setState si l'écran est détruit
       setState(() {
@@ -29,6 +32,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
       _carbsController.text = (prefs.getDouble('goalCarbs') ?? 150).toString();
       _proteinController.text = (prefs.getDouble('goalProtein') ?? 160).toString();
       _fatController.text = (prefs.getDouble('goalFat') ?? 70).toString();
+    
+      _autoResetEnabled = prefs.getBool('autoResetEnabled') ?? true;
+    });
+  }
+
+  Future<void> _saveAutoResetSetting(bool value) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool('autoResetEnabled', value);
+    setState(() {
+      _autoResetEnabled = value;
     });
   }
 
@@ -44,6 +57,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(content: Text('Objectifs enregistrés')),
     );
+    
+
+    Navigator.pop(context, true);
   }
   }
 
@@ -64,8 +80,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
               const SizedBox(height: 24),
               ElevatedButton(
                 onPressed: _saveGoals,
-                child: const Text('Enregistrer'),
+                child: const Text('Enregistrer les objectifs'),
               ),
+              const Divider(height: 40),
+
+              SwitchListTile(
+              title: const Text('Réinitialisation journalière'),
+              subtitle: const Text('Vider le journal automatiquement chaque jour à minuit.'),
+              value: _autoResetEnabled,
+              onChanged: _saveAutoResetSetting,
+            ),
             ],
           ),
         ),
