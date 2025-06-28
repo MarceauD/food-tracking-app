@@ -1,10 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:percent_indicator/percent_indicator.dart';
 import '../models/food_item.dart';
-import 'dart:convert';
 import 'add_food_screen.dart';
 import 'settings_screen.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import '../helpers/database_helper.dart'; // Importer le helper
+
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -20,50 +21,41 @@ class _HomeScreenState extends State<HomeScreen> {
   double goalCalories = 1700;
   double goalProtein = 160;
   double goalCarbs = 150;
-  double goalFat = 70;
+  double goalFat = 60;
 
   @override
   void initState() {
     super.initState();
-    _loadGoals();
-    _loadFavoriteFoods();
+    _refreshData();
   }
 
-  Future<void> _loadFavoriteFoods() async {
-    final prefs = await SharedPreferences.getInstance();
-    final favoriteJsonList = prefs.getStringList('favoriteFoods') ?? [];
-    setState(() {
-      _favoriteFoods = favoriteJsonList.map((itemJson) {
-        final map = jsonDecode(itemJson);
-        return FoodItem(
-          name: map['name'],
-          caloriesPer100g: (map['calories'] as num).toDouble(),
-          carbsPer100g: (map['carbs'] as num).toDouble(),
-          proteinPer100g: (map['protein'] as num).toDouble(),
-          fatPer100g: (map['fat'] as num).toDouble(),
-          quantity: (map['quantity'] as num).toDouble(),
-          date: DateTime.now(),
-        );
-      }).toList();
+  Future<void> _refreshData() async {
+    await _loadGoals();
+    await _loadFavoriteFoodsFromDb();
+    await _loadFoodLogFromDb();
+  }
 
-      print('Favoris chargés :');
-      for (var food in _favoriteFoods) {
-        print(
-          '${food.name ?? "Sans nom"} - ${food.caloriesPer100g} kcal, '
-          '${food.proteinPer100g}g protéines, '
-          '${food.carbsPer100g}g glucides, '
-          '${food.fatPer100g}g lipides');
-      }
+  Future<void> _loadFavoriteFoodsFromDb() async {
+    final favorites = await DatabaseHelper.instance.getFavorites();
+    setState(() {
+      _favoriteFoods = favorites;
     });
   }
 
+  Future<void> _loadFoodLogFromDb() async {
+    final log = await DatabaseHelper.instance.getFoodLogForDate(DateTime.now());
+    setState(() {
+      foodItems = log;
+    });
+  }
+  
   Future<void> _loadGoals() async {
     final prefs = await SharedPreferences.getInstance();
     setState(() {
-      goalCalories = prefs.getDouble('goalCalories') ?? 2100;
-      goalCarbs = prefs.getDouble('goalCarbs') ?? 258;
-      goalProtein = prefs.getDouble('goalProtein') ?? 103;
-      goalFat = prefs.getDouble('goalFat') ?? 68;
+      goalCalories = prefs.getDouble('goalCalories') ?? 1700;
+      goalCarbs = prefs.getDouble('goalCarbs') ?? 150;
+      goalProtein = prefs.getDouble('goalProtein') ?? 160;
+      goalFat = prefs.getDouble('goalFat') ?? 60;
     });
   }
 
@@ -82,40 +74,32 @@ class _HomeScreenState extends State<HomeScreen> {
   // Fonction de formatage des nombres pour affichage
   String formatDouble(double value) => value.toStringAsFixed(0);
 
-  void _addFoodItem(FoodItem item) {
-    setState((){
-      foodItems.add(item);
-    });
-  }
 
-  void _addFavoriteToToday (FoodItem item) {
-      _addFoodItem(item.copyWith(date : DateTime.now()));
+  void _addFavoriteToToday (FoodItem item) async {
+      await DatabaseHelper.instance.createFoodLog(item);
+      _loadFoodLogFromDb();
   }
 
   void _clearFoodItems() {
-  showDialog(
-    context: context,
-    builder: (context) => AlertDialog(
-      title: const Text('Confirmation'),
-      content: const Text('Supprimer tous les aliments consommés ?'),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.pop(context),
-          child: const Text('Annuler'),
-        ),
-        TextButton(
-          onPressed: () {
-            setState(() {
-              foodItems.clear();
-            });
-            Navigator.pop(context);
-          },
-          child: const Text('Supprimer'),
-        ),
-      ],
-    ),
-  );
-}
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Confirmation'),
+        content: const Text('Supprimer tous les aliments consommés ?'),
+        actions: [
+          TextButton(
+            onPressed: () async {
+              await DatabaseHelper.instance.clearFoodLog();
+              _loadFoodLogFromDb(); // Recharger la liste vide
+              Navigator.pop(context);
+            },
+            child: const Text('Annuler'),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -247,25 +231,16 @@ class _HomeScreenState extends State<HomeScreen> {
       ),
       floatingActionButton: FloatingActionButton(
         onPressed: () async {
-          final result = await Navigator.push<Map<String, dynamic>>(
+          final shouldRefresh = await Navigator.push<bool>(
             context,
             MaterialPageRoute(
               builder: (context) => const AddFoodScreen(),
             ),
           );
 
-          if (result != null) {
-            final newItem = result['foodItem'] as FoodItem?;
-            final favoriAjoute = result['favoriAjoute'] == true;
-
-            if (newItem != null) {
-              _addFoodItem(newItem);
-            }
-
-            if (favoriAjoute) {
-              if (!mounted) return;
-              await _loadFavoriteFoods(); // Recharge les favoris
-            }
+          // Si on a reçu 'true', c'est qu'un ajout a été fait
+          if (shouldRefresh == true && mounted) {
+            _refreshData(); // On recharge toutes les données
           }
         },
         child: const Icon(Icons.add),

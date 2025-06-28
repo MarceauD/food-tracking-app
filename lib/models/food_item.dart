@@ -25,6 +25,33 @@ class FoodItem {
   double get totalCarbs => (carbsPer100g / 100) * quantity;
   double get totalFat => (fatPer100g / 100) * quantity;
 
+  Map<String, dynamic> toMap() {
+    return {
+      'id': id,
+      'name': name,
+      'caloriesPer100g': caloriesPer100g,
+      'proteinPer100g': proteinPer100g,
+      'carbsPer100g': carbsPer100g,
+      'fatPer100g': fatPer100g,
+      'quantity': quantity,
+      // On stocke la date en format ISO 8601 (String)
+      'date': date?.toIso8601String(), 
+    };
+  }
+
+  factory FoodItem.fromMap(Map<String, dynamic> map) {
+    return FoodItem(
+      id: map['id'],
+      name: map['name'],
+      caloriesPer100g: map['caloriesPer100g'],
+      proteinPer100g: map['proteinPer100g'],
+      carbsPer100g: map['carbsPer100g'],
+      fatPer100g: map['fatPer100g'],
+      quantity: map['quantity'],
+      // On parse la date stockée en String
+      date: map['date'] != null ? DateTime.parse(map['date']) : null,
+    );
+  }
 
   FoodItem copyWith ({DateTime ? date}) {
     return FoodItem(

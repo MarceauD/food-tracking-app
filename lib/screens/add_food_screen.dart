@@ -2,6 +2,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import '../models/food_item.dart';
+import '../helpers/database_helper.dart';
 
 class AddFoodScreen extends StatefulWidget {
   const AddFoodScreen({super.key});
@@ -34,38 +35,17 @@ class _AddFoodScreenState extends State<AddFoodScreen> {
   }
 
   Future<void> _addToFavorites(FoodItem item) async {
-    final prefs = await SharedPreferences.getInstance();
-    final List<String> favoriteJsonList = prefs.getStringList('favoriteFoods') ?? [];
-
-    // Convertir l’aliment en Map, puis en JSON string
-    final newItemJson = jsonEncode({
-      'name': item.name,
-      'calories': item.caloriesPer100g,
-      'carbs': item.carbsPer100g,
-      'protein': item.proteinPer100g,
-      'fat': item.fatPer100g,
-      'quantity': item.quantity,
-    });
-
-    // Ajouter uniquement s’il n’existe pas déjà (facultatif)
-    if (!favoriteJsonList.contains(newItemJson)) {
-        favoriteJsonList.add(newItemJson);
-        await prefs.setStringList('favoriteFoods', favoriteJsonList);
-      }
-
-  print('✅ Favori ajouté, fermeture de AddFoodScreen');
-  if(context.mounted) {
-    Navigator.pop(context, {
-      'foodItem': item,
-      'favoriAjoute': true, // ou false selon ce que tu fais
-      });
+    await DatabaseHelper.instance.createFavorite(item);
+    
+    if(context.mounted) {
+      Navigator.pop(context, true); // On retourne 'true' pour signaler un changement
     }
   }
 
-  void _submitForm() {
-    if (_formKey.currentState!.validate()) {
+  void _submitForm() async {    
+     if (_formKey.currentState!.validate()) {
       final item = FoodItem(
-        name: _nameController.text.isEmpty ? null : _nameController.text,
+        name: _nameController.text.isEmpty ? 'Aliment' : _nameController.text,
         caloriesPer100g: double.parse(_caloriesController.text),
         proteinPer100g: double.parse(_proteinController.text),
         carbsPer100g: double.parse(_carbsController.text),
@@ -74,13 +54,13 @@ class _AddFoodScreenState extends State<AddFoodScreen> {
         date: DateTime.now(),
       );
 
-      Navigator.pop(context, {
-      'foodItem': item,
-      'favoriAjoute': false, // ou false selon ce que tu fais
-      });
+      await DatabaseHelper.instance.createFoodLog(item);
+  }
+      if (context.mounted) {
+        Navigator.pop(context, true); // On retourne 'true' pour rafraîchir la home page
+      }
       
     }
-  }
 
   Widget _buildTextField(
       {required String label,

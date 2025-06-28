@@ -38,7 +38,9 @@ dependencies:
   provider: ^6.1.5
   percent_indicator: ^4.2.5
   shared_preferences: ^2.5.3
-
+  sqflite: ^2.2.3
+  path: ^1.9.0
+  
 dev_dependencies:
   flutter_test:
     sdk: flutter
