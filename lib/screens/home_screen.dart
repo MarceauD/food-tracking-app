@@ -7,6 +7,12 @@ import 'settings_screen.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../helpers/database_helper.dart'; 
 import 'package:intl/intl.dart';
+import '../widgets/home/summary_card.dart';
+import '../widgets/home/meal_journal_card.dart';
+import '../controllers/home_controller.dart';
+import '../models/saved_meals.dart';
+import '../widgets/home/quick_add_card.dart';
+import '../widgets/common/empty_state_widget.dart';
 
 
 class HomeScreen extends StatefulWidget  {
@@ -16,8 +22,11 @@ class HomeScreen extends StatefulWidget  {
 }
 
 class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver, TickerProviderStateMixin {
+  final HomeController _controller = HomeController();
+
   List<FoodItem> foodItems = [];
   List<FoodItem> _favoriteFoods = [];
+  List<SavedMeal> _savedMeals = [];
 
   late TabController _tabController;
 
@@ -44,10 +53,11 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver, Ti
   void initState() {
     super.initState();
     _tabController = TabController(length: 4, vsync: this);
-
     WidgetsBinding.instance.addObserver(this);
-    _checkDateAndResetIfNeeded();
-    _refreshData();
+
+    _controller.checkAndResetLogIfNeeded().then((_) {
+      _refreshData();
+    });
   }
 
   @override
@@ -107,10 +117,38 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver, Ti
   }
 
   Future<void> _refreshData() async {
-    await _loadGoals();
-    await _loadFavoriteFoodsFromDb();
-    await _loadFoodLogFromDb();
+    // Les méthodes de chargement appellent maintenant le controller
+    // et mettent à jour l'état de l'UI avec le résultat
+    final goals = await _controller.loadGoals();
+    final favorites = await _controller.loadFavorites();
+    final log = await _controller.loadFoodLogForToday();
+    final savedMeals = await _controller.loadSavedMeals();
+    
+    setState(() {
+      goalCalories = goals['calories']!;
+      goalCarbs = goals['carbs']!;
+      goalProtein = goals['protein']!;
+      goalFat = goals['fat']!;
+      _favoriteFoods = favorites;
+      _savedMeals = savedMeals;
+      foodItems = log;
+    });
   }
+
+  Future<void> _addSavedMealToLog(SavedMeal savedMeal, MealType mealType) async {
+  final now = DateTime.now();
+  // On parcourt chaque aliment du repas sauvegardé
+  for (final itemTemplate in savedMeal.items) {
+    // Pour chaque, on crée une nouvelle entrée de log avec la bonne date et le bon repas
+    final itemToLog = itemTemplate.copyWith(
+      date: now,
+      mealType: mealType,
+      forceIdToNull: true, // Crucial pour obtenir un nouvel ID dans la BDD
+    );
+    await DatabaseHelper.instance.createFoodLog(itemToLog);
+  }
+  _refreshData(); // On rafraîchit toute l'interface
+}
 
   Future<void> _loadFavoriteFoodsFromDb() async {
     final favorites = await DatabaseHelper.instance.getFavorites();
@@ -126,16 +164,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver, Ti
     });
   }
   
-  Future<void> _loadGoals() async {
-    final prefs = await SharedPreferences.getInstance();
-    setState(() {
-      goalCalories = prefs.getDouble('goalCalories') ?? 1700;
-      goalCarbs = prefs.getDouble('goalCarbs') ?? 150;
-      goalProtein = prefs.getDouble('goalProtein') ?? 160;
-      goalFat = prefs.getDouble('goalFat') ?? 60;
-    });
-  }
-
   Future<void> _showDeleteFavoriteDialog(FoodItem favorite) async {
     // L'ID ne peut pas être null ici car il vient de la BDD
     final int favoriteId = favorite.id!; 
@@ -171,6 +199,106 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver, Ti
       },
     );
   }
+
+  Future<void> _showSaveMealDialog(MealType mealType, List<FoodItem> items) async {
+  final nameController = TextEditingController();
+  
+  // On pré-remplit avec un nom par défaut
+  nameController.text = 'Mon ${mealType.name} habituel';
+  return showDialog<void>(
+    context: context,
+    builder: (context) {
+      return AlertDialog(
+        title: const Text('Sauvegarder le repas'),
+        content: TextField(
+          controller: nameController,
+          decoration: const InputDecoration(labelText: 'Nom du repas'),
+          autofocus: true,
+        ),
+        actions: [
+          TextButton(
+            child: const Text('Annuler'),
+            onPressed: () => Navigator.of(context).pop(),
+          ),
+          ElevatedButton(
+            child: const Text('Sauvegarder'),
+            onPressed: () async {
+              if (nameController.text.isNotEmpty) {
+                await _controller.saveCurrentMeal(nameController.text, items);
+                if (context.mounted) {
+                  Navigator.of(context).pop();
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('Repas sauvegardé !')),
+                  );
+                }
+              }
+            },
+          ),
+        ],
+      );
+    },
+  );
+
+  
+}
+
+// lib/screens/home_screen.dart > _HomeScreenState
+
+Future<void> _showAddSavedMealToMealDialog(SavedMeal meal) async {
+  return showModalBottomSheet<void>(
+    context: context,
+    builder: (BuildContext context) {
+      return Wrap(
+        children: <Widget>[
+          ListTile(
+            title: Text(
+              'Ajouter "${meal.name}" à...',
+              style: const TextStyle(fontWeight: FontWeight.bold),
+            ),
+          ),
+          const Divider(thickness: 1),
+
+          // On transforme le onTap en fonction asynchrone
+          ListTile(
+            leading: const Icon(Icons.wb_sunny_outlined),
+            title: const Text('Petit-déjeuner'),
+            onTap: () async { // <-- async
+              Navigator.pop(context); // On ferme le menu d'abord
+              await _addSavedMealToLog(meal, MealType.breakfast); // <-- On ATTEND la fin de l'opération
+            },
+          ),
+
+          ListTile(
+            leading: const Icon(Icons.lunch_dining_outlined),
+            title: const Text('Déjeuner'),
+            onTap: () async { // <-- async
+              Navigator.pop(context);
+              await _addSavedMealToLog(meal, MealType.lunch); // <-- await
+            },
+          ),
+
+          ListTile(
+            leading: const Icon(Icons.dinner_dining_outlined),
+            title: const Text('Dîner'),
+            onTap: () async { // <-- async
+              Navigator.pop(context);
+              await _addSavedMealToLog(meal, MealType.dinner); // <-- await
+            },
+          ),
+
+          ListTile(
+            leading: const Icon(Icons.fastfood_outlined),
+            title: const Text('Collation'),
+            onTap: () async { // <-- async
+              Navigator.pop(context);
+              await _addSavedMealToLog(meal, MealType.snack); // <-- await
+            },
+          ),
+        ],
+      );
+    },
+  );
+}
 
   Future<void> _showQuantityDialog(FoodItem favorite, MealType meal) async {
     final quantityController = TextEditingController();
@@ -300,8 +428,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver, Ti
         actions: [
           TextButton(
             onPressed: () async {
-              await DatabaseHelper.instance.clearFoodLog();
-              _loadFoodLogFromDb(); // Recharger la liste vide
+              await _controller.clearLog(); // APPEL AU CONTROLLER
+              _refreshData(); // On rafraîchit l'UI
               Navigator.pop(context);
             },
             child: const Text('Confirmer'),
@@ -311,22 +439,51 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver, Ti
     );
   }
 
+  Future<void> _showDeleteSavedMealDialog(SavedMeal meal) async {
+    return showDialog<void>(
+      context: context,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          title: const Text('Supprimer ce repas ?'),
+          content: Text('Voulez-vous vraiment supprimer le repas "${meal.name}" ? Cette action est irréversible.'),
+          actions: <Widget>[
+            TextButton(
+              child: const Text('Annuler'),
+              onPressed: () => Navigator.of(context).pop(),
+            ),
+            TextButton(
+              style: TextButton.styleFrom(foregroundColor: Colors.red),
+              child: const Text('Supprimer'),
+              onPressed: () async {
+                await _controller.deleteSavedMeal(meal.id!);
+                if (context.mounted) {
+                  Navigator.of(context).pop();
+                  _refreshData(); // On rafraîchit tout pour voir le changement
+                }
+              },
+            ),
+          ],
+        );
+      },
+    );
+  }
+
  Widget _buildWelcomeMessage() {
     final hour = DateTime.now().hour;
 
     String message;
     if (hour < 12) {
-      message = 'Bonjour !';
+      message = 'Bonjour ! 👋';
     } else if (hour < 18) {
-      message = 'Bon après-midi !';
+      message = 'Bon après-midi ! ☀️';
     } else {
-      message = 'Bonsoir !';
+      message = 'Bonsoir ! 🌙 ';
     }
     return Text(
       message,
       style: GoogleFonts.poppins(
         color: Colors.black87,
-        fontSize: 20, 
+        fontSize: 22, 
         fontWeight: FontWeight.bold,
       ),
     );
@@ -387,53 +544,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver, Ti
       },
       );
     }
-
-
-  Map<MealType, List<FoodItem>> _groupFoodItemsByMeal(List<FoodItem> items) {
-    // On initialise une map avec une liste vide pour chaque repas
-    final Map<MealType, List<FoodItem>> groupedItems = {
-      MealType.breakfast: [],
-      MealType.lunch: [],
-      MealType.dinner: [],
-      MealType.snack: [],
-    };
-
-    // On parcourt la liste et on place chaque aliment dans la bonne catégorie
-    for (final item in items) {
-      if (item.mealType != null) {
-        groupedItems[item.mealType]!.add(item);
-      }
-    }
-    return groupedItems;
-  }
-
-  // lib/screens/home_screen.dart > _HomeScreenState
-
-  // NOUVELLE MÉTHODE pour construire la liste d'aliments d'un repas
-  Widget _buildMealList(List<FoodItem> mealItems) {
-    if (mealItems.isEmpty) {
-      return const Center(
-        child: Text('Aucun aliment pour ce repas.'),
-      );
-    }
-    return ListView.builder(
-      padding: EdgeInsets.zero, // Enlève le padding par défaut du ListView
-      itemCount: mealItems.length,
-      itemBuilder: (context, index) {
-        final item = mealItems[index];
-        // On retourne le même ListTile que vous aviez avant
-        return ListTile(
-          title: Text(item.name ?? 'Aliment sans nom'),
-          subtitle: Text('${item.quantity}g'),
-          trailing: Text('${item.totalCalories.toStringAsFixed(0)} kcal'),
-        );
-      },
-    );
-  }
-
+ 
   @override
   Widget build(BuildContext context) {
-    
     final screenWidth = MediaQuery.of(context).size.width;
     final totalPadding = 16.0 * 4;
     final availableWidth = screenWidth - totalPadding;
@@ -441,9 +554,11 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver, Ti
     final gaugeRadiusMacro = (availableWidth / 3) / 2; // Calcul dynamique du rayon
     final gaugeRadiusCalories = 90.0;
 
-    final groupedFoodItems = _groupFoodItemsByMeal(foodItems);
+
+    final groupedFoodItems = _controller.groupFoodItemsByMeal(foodItems);
 
     return Scaffold(
+      backgroundColor: Colors.white,
       appBar: PreferredSize(
         preferredSize: const Size.fromHeight(80.0),
       child: AppBar(
@@ -485,173 +600,92 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver, Ti
       ],
     ),
     ),
-    body: Padding(
+    body: 
+    Container(
+    decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: [
+            Colors.green.withOpacity(0.1), // Vert très léger en haut
+            const Color(0xFFF7F9F9),     // Le blanc cassé de notre thème en bas
+          ],
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+        ),
+      ),
+    child:
+    Padding(
       padding: const EdgeInsets.symmetric(horizontal: 12.0, vertical: 8.0),
-      child: 
-      Column(
-        children: [
-          Card(
-            elevation:4.0,
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10.0)),
-            child: Padding(
-              padding: const EdgeInsets.all(10.0),
-              child: Column(
-                children: [
-                  // La colonne que vous aviez déjà pour les jauges
-                  Column(
-                    children: [
-                      CircularPercentIndicator(
-                radius: gaugeRadiusCalories,
-                lineWidth: 12.0,
-                percent: (totalCalories / goalCalories).clamp(0, 1),
-                center: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Text(
-                      totalCalories.toStringAsFixed(0),
-                      style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 36),
-                    ),
-                    const Text(
-                      'KCAL CONSOMMÉES', // J'ai ajusté le texte pour plus de clarté
-                      style: TextStyle(fontSize: 10, color: Colors.grey),
-                    ),
-                  ],
-                ),
-            progressColor: Colors.green,
-            backgroundColor: Colors.green.shade100,
-            circularStrokeCap: CircularStrokeCap.round,
-          ),
-          const SizedBox(height: 7.0),
-          Text(
-                '${(goalCalories - totalCalories).clamp(0, goalCalories).toStringAsFixed(0)} restantes',
-                style: const TextStyle(fontSize: 14, color: Colors.black54),
-              ), 
-                    ],
-          ),
-          // Jauges macronutriments en ligne
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceAround,
-            children: [
-              _buildMacroIndicator(
-                  radius: gaugeRadiusMacro,
-                  iconData: Icons.local_fire_department_outlined,
-                  label: 'Glucides',
-                  value: totalCarbs,
-                  max: goalCarbs,
-                  color: Colors.blue),
-              _buildMacroIndicator(
-                  radius: gaugeRadiusMacro,
-                  iconData: Icons.fitness_center_outlined,
-                  label: 'Protéines',
-                  value: totalProtein,
-                  max: goalProtein,
-                  color: Colors.red),
-              _buildMacroIndicator(
-                  radius: gaugeRadiusMacro,
-                  iconData: Icons.water_drop_outlined,
-                  label: 'Lipides',
-                  value: totalFat,
-                  max: goalFat,
-                  color: Colors.orange),
-            ],
+        child: ListView(
+          children: [
+            // --- ON APPELLE NOTRE NOUVEAU WIDGET DE RÉSUMÉ ---
+            SummaryCard(
+              totalCalories: totalCalories,
+              goalCalories: goalCalories,
+              totalCarbs: totalCarbs,
+              goalCarbs: goalCarbs,
+              totalProtein: totalProtein,
+              goalProtein: goalProtein,
+              totalFat: totalFat,
+              goalFat: goalFat,
+              gaugeRadiusMacro: gaugeRadiusMacro,
+              gaugeRadiusCalories: gaugeRadiusCalories,
+              buildMacroIndicator: _buildMacroIndicator, // On passe la fonction de construction
             ),
-          ]
-              ),
-            ),
-          ),
+            
           const SizedBox(height: 16),
-          if (_favoriteFoods.isNotEmpty) 
-            Card(
-              elevation:2.0,
-              shape : RoundedRectangleBorder(borderRadius: BorderRadius.circular(16.0)),
-              child: Padding(
-                padding: const EdgeInsets.all(16.0),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text(
-                  'Favoris',
-                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-                ),
-                const SizedBox(height: 8),
-                Wrap(
-                  spacing: 8,
-                  runSpacing: 8,
-                  children: _favoriteFoods.map((food) {
-                    // On enveloppe le bouton dans un GestureDetector
-                    return GestureDetector(
-                      onLongPress: () {
-                        // L'appui long déclenche la suppression
-                        _showDeleteFavoriteDialog(food);
-                      },
-                      child: ElevatedButton(
-                        // L'appui court (onPressed) garde son comportement normal
-                        onPressed: () => _showAddFavoriteToMealDialog(food),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.grey[200],
-                          foregroundColor: Colors.black,
-                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                        ),
-                        child: Text(food.name ?? 'Sans nom'),
-                      ),
-                    );
-                  }).toList(),
-                ),
-                ],
-              ),
+
+          QuickAddCard(
+              favoriteFoods: _favoriteFoods,
+              savedMeals: _savedMeals,
+              onFavoriteTap: _showAddFavoriteToMealDialog,
+              onSavedMealTap: _showAddSavedMealToMealDialog,
+              onFavoriteLongPress: _showDeleteFavoriteDialog,
+              onSavedMealLongPress: _showDeleteSavedMealDialog,
             ),
-          ),
   
           const SizedBox(height: 16),
 
-          Expanded(
-            child: Card(
-              elevation: 2.0,
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16.0)),
-                clipBehavior: Clip.antiAlias, // Important pour que les coins arrondis coupent bien le contenu
-                child: Column(
-                  children: [
-                    // 1. LA BARRE D'ONGLETS
-                    TabBar(
-                      controller: _tabController,
-                      labelColor: Theme.of(context).colorScheme.primary,
-                      unselectedLabelColor: Colors.grey,
-                      tabs: const [
-                        Tab(text: 'Petit-déj'),
-                        Tab(text: 'Déjeuner'),
-                        Tab(text: 'Dîner'),
-                        Tab(text: 'Collation'),
-                      ],
-                    ),
-                    const Divider(height: 1),
-
-                    // 2. LA VUE AVEC LE CONTENU SWIPABLE
-                    Expanded(
-                      child: TabBarView(
-                        controller: _tabController,
-                        children: [
-                          // On génère une vue pour chaque type de repas
-                          _buildMealList(groupedFoodItems[MealType.breakfast]!),
-                          _buildMealList(groupedFoodItems[MealType.lunch]!),
-                          _buildMealList(groupedFoodItems[MealType.dinner]!),
-                          _buildMealList(groupedFoodItems[MealType.snack]!),
-                        ],
-                      ),
-                    ),
-                  ],
-                ),
+          
+          MealJournalCard(
+              tabController: _tabController,
+              groupedFoodItems: groupedFoodItems,
+              buildMealList: _buildMealList,
+              onSaveMeal: _showSaveMealDialog, // <-- ON PASSE LA NOUVELLE MÉTHODE
             ),
-          ),
-            
-        const SizedBox(height:80),
+
+            const SizedBox(height: 80),
       ],
     ),
+   ),
   ),
   floatingActionButton: FloatingActionButton(
     onPressed: _showMealSelection, // <-- On appelle le menu
     child: const Icon(Icons.add),
     ),
     );
+}
+
+Widget _buildMealList(List<FoodItem> mealItems) {
+  if (mealItems.isEmpty) {
+    return const EmptyStateWidget(
+        imagePath: 'assets/images/undraw_healthy-habit_2ata.svg', // Remplacez par le nom de votre fichier
+        title: 'Ce repas est encore vide',
+        subtitle: 'Appuyez sur le bouton "+" pour ajouter votre premier aliment.',
+      );
+  }
+  return ListView.builder(
+    padding: EdgeInsets.zero, // Enlève le padding par défaut du ListView
+    itemCount: mealItems.length,
+    itemBuilder: (context, index) {
+      final item = mealItems[index];
+      // On retourne le même ListTile que vous aviez avant
+      return ListTile(
+        title: Text(item.name ?? 'Aliment sans nom'),
+        subtitle: Text('${item.quantity}g'),
+        trailing: Text('${item.totalCalories.toStringAsFixed(0)} kcal'),
+      );
+    },
+  );
 }
 
 Widget _buildMacroIndicator({
@@ -677,15 +711,27 @@ Widget _buildMacroIndicator({
         const SizedBox(height: 4),
 
         Text(
-          value.toStringAsFixed(0) + ' g / ' + max.toStringAsFixed(0) + ' g',
+          '${value.toStringAsFixed(0)} g',
           style: TextStyle(
-            color: color,
-            fontSize: radius * 0.2, // Taille proportionnelle
-            fontWeight: FontWeight.bold,
-           ),
+            color: Colors.black87,
+            fontSize: radius * 0.28, // Légèrement plus grand
+            fontWeight: FontWeight.w600, // Semi-gras pour la clarté
+          ),
+        ),
+        Text(
+          '/ ${max.toStringAsFixed(0)} g', // On sépare la cible pour un style différent
+          style: TextStyle(
+            color: Colors.grey[600],
+            fontSize: radius * 0.18, // Plus petit
+          ),
           ),
         ],
       ),
+
+      animation: true,
+      animateFromLastPercent: true,
+      animationDuration: 800, // Un peu plus rapide pour une sensation de réactivité
+      curve: Curves.easeOut,
     );
   }
 }

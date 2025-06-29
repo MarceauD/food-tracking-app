@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:percent_indicator/circular_percent_indicator.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import '../controllers/settings_controller.dart';
 
 
 class SettingsScreen extends StatefulWidget {
@@ -16,24 +18,28 @@ class _SettingsScreenState extends State<SettingsScreen> {
   final _proteinController = TextEditingController();
   final _fatController = TextEditingController();
 
+  final _controller = SettingsController();
+
   bool _autoResetEnabled = true;
+  bool _isLoading = true;
+
 
   @override
   void initState() {
     super.initState();
-    _loadSettings();
+    _loadData();
   }
 
-  Future<void> _loadSettings() async {
-    final prefs = await SharedPreferences.getInstance();
-    if (!mounted) return; // Sécurité : ne pas appeler setState si l'écran est détruit
-      setState(() {
-      _caloriesController.text = (prefs.getDouble('goalCalories') ?? 1700).toString();
-      _carbsController.text = (prefs.getDouble('goalCarbs') ?? 150).toString();
-      _proteinController.text = (prefs.getDouble('goalProtein') ?? 160).toString();
-      _fatController.text = (prefs.getDouble('goalFat') ?? 70).toString();
-    
-      _autoResetEnabled = prefs.getBool('autoResetEnabled') ?? true;
+  Future<void> _loadData() async {
+    final settings = await _controller.loadSettings();
+    if (!mounted) return;
+    setState(() {
+      _caloriesController.text = (settings['goalCalories'] as double).toString();
+      _carbsController.text = (settings['goalCarbs'] as double).toString();
+      _proteinController.text = (settings['goalProtein'] as double).toString();
+      _fatController.text = (settings['goalFat'] as double).toString();
+      _autoResetEnabled = settings['autoResetEnabled'] as bool;
+      _isLoading = false;
     });
   }
 
@@ -47,27 +53,28 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   Future<void> _saveGoals() async {
     if (_formKey.currentState!.validate()) {
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setDouble('goalCalories', double.parse(_caloriesController.text));
-      await prefs.setDouble('goalCarbs', double.parse(_carbsController.text));
-      await prefs.setDouble('goalProtein', double.parse(_proteinController.text));
-      await prefs.setDouble('goalFat', double.parse(_fatController.text));
-
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Objectifs enregistrés')),
-    );
-    
-
-    Navigator.pop(context, true);
-  }
+      final goals = {
+        'calories': double.parse(_caloriesController.text),
+        'carbs': double.parse(_carbsController.text),
+        'protein': double.parse(_proteinController.text),
+        'fat': double.parse(_fatController.text),
+      };
+      await _controller.saveGoals(goals);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Objectifs enregistrés')),
+      );
+      Navigator.pop(context, true); // On signale que les données ont changé
+    }
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(title: const Text('Objectifs nutritionnels')),
-      body: Padding(
+      body: _isLoading
+      ? Center(child: CircularPercentIndicator(radius: 40))
+      : Padding(
         padding: const EdgeInsets.all(16),
         child: Form(
           key: _formKey,
