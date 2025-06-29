@@ -35,6 +35,7 @@ class DatabaseHelper {
     CREATE TABLE food_log (
       id $idType,
       name TEXT,
+      mealType TEXT,
       caloriesPer100g $realType,
       proteinPer100g $realType,
       carbsPer100g $realType,
@@ -53,7 +54,7 @@ class DatabaseHelper {
       proteinPer100g $realType,
       carbsPer100g $realType,
       fatPer100g $realType,
-      quantity $realType NOT NULL,
+      quantity $realType,
       date TEXT
     )
     ''');
@@ -91,7 +92,7 @@ class DatabaseHelper {
 
   // --- Opérations sur les Favoris ---
 
-  Future<FoodItem> createFavorite(FoodItem item) async {
+  Future<bool> createFavorite(FoodItem item) async {
     final db = await instance.database;
 
     final existing = await db.query(
@@ -102,10 +103,20 @@ class DatabaseHelper {
     );
 
     if (existing.isEmpty) {
-      await db.insert('favorites', item.toMap());
-    }
-    
-    return item;
+      final Map<String, dynamic> favoriteMap = {
+        'name': item.name,
+        'caloriesPer100g': item.caloriesPer100g,
+        'proteinPer100g': item.proteinPer100g,
+        'carbsPer100g': item.carbsPer100g,
+        'fatPer100g': item.fatPer100g,
+        'quantity': item.quantity,
+      };
+
+      await db.insert('favorites', favoriteMap);
+      return true;
+   } else {
+    return false;
+   }
   }
 
   Future<int> deleteFavorite(int id) async {

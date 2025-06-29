@@ -2,6 +2,14 @@ import 'package:flutter/material.dart';
 import '/screens/home_screen.dart';
 import 'package:openfoodfacts/openfoodfacts.dart';
 import 'package:intl/date_symbol_data_local.dart'; 
+import 'package:sqflite/sqflite.dart';
+import 'package:path/path.dart';
+
+Future<void> deleteDb() async {
+  final dbPath = await getDatabasesPath();
+  final path = join(dbPath, 'nutrition.db');
+  await deleteDatabase(path);
+}
 
 void main() async {
   OpenFoodAPIConfiguration.userAgent = UserAgent(

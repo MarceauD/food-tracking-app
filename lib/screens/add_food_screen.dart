@@ -1,5 +1,3 @@
-import 'package:shared_preferences/shared_preferences.dart';
-import 'dart:convert';
 import 'package:flutter/material.dart';
 import '../models/food_item.dart';
 import '../helpers/database_helper.dart';
@@ -8,8 +6,9 @@ import 'barcode_scanner_screen.dart';
 class AddFoodScreen extends StatefulWidget {
 
   final FoodItem? initialFoodItem;
+  final MealType mealType;
 
-  const AddFoodScreen({super.key, this.initialFoodItem});
+  const AddFoodScreen({super.key, required this.mealType, this.initialFoodItem});
   
 
   @override
@@ -58,14 +57,20 @@ class _AddFoodScreenState extends State<AddFoodScreen> {
   }
 
   Future<void> _addToFavorites(FoodItem item) async {
-    await DatabaseHelper.instance.createFavorite(item);
-    
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Nouveau favori enregistré')),
-    );
+    final bool success = await DatabaseHelper.instance.createFavorite(item);
 
-    if(context.mounted) {
-      Navigator.pop(context, true); // On retourne 'true' pour signaler un changement
+    if (!mounted) return;
+
+    if (success) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Nouveau favori enregistré')),
+      );
+      // On ferme l'écran uniquement en cas de succès
+      Navigator.pop(context, true);
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Cet aliment est déjà dans vos favoris')),
+      );
     }
   }
 
@@ -73,6 +78,7 @@ class _AddFoodScreenState extends State<AddFoodScreen> {
      if (_formKey.currentState!.validate()) {
       final item = FoodItem(
         name: _nameController.text.isEmpty ? 'Aliment' : _nameController.text,
+        mealType: widget.mealType,
         caloriesPer100g: double.parse(_caloriesController.text),
         proteinPer100g: double.parse(_proteinController.text),
         carbsPer100g: double.parse(_carbsController.text),

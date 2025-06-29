@@ -1,3 +1,5 @@
+enum MealType { breakfast, lunch, dinner, snack }
+
 class FoodItem {
   final int? id;
   final String? name;
@@ -6,6 +8,7 @@ class FoodItem {
   final double carbsPer100g;
   final double fatPer100g;
   double? quantity;
+  final MealType? mealType;
   final DateTime? date;
 
   FoodItem({
@@ -15,7 +18,8 @@ class FoodItem {
     required this.proteinPer100g,
     required this.carbsPer100g,
     required this.fatPer100g,
-     this.quantity,
+    this.quantity,
+    this.mealType,
     this.date,
   });
 
@@ -29,6 +33,7 @@ class FoodItem {
     return {
       'id': id,
       'name': name,
+      'mealType': mealType?.name, 
       'caloriesPer100g': caloriesPer100g,
       'proteinPer100g': proteinPer100g,
       'carbsPer100g': carbsPer100g,
@@ -48,6 +53,9 @@ class FoodItem {
       carbsPer100g: map['carbsPer100g'],
       fatPer100g: map['fatPer100g'],
       quantity: map['quantity'],
+      mealType: map['mealType'] != null
+          ? MealType.values.byName(map['mealType'])
+          : null,
       // On parse la date stockée en String
       date: map['date'] != null ? DateTime.parse(map['date']) : null,
     );
@@ -61,6 +69,7 @@ class FoodItem {
     double? carbsPer100g,
     double? fatPer100g,
     double? quantity,
+    MealType? mealType,
     DateTime? date,
 
     bool forceIdToNull = false, 
@@ -73,6 +82,7 @@ class FoodItem {
       carbsPer100g: carbsPer100g ?? this.carbsPer100g,
       fatPer100g: fatPer100g ?? this.fatPer100g,
       quantity: quantity ?? this.quantity,
+      mealType: mealType ?? this.mealType,
       date: date ?? this.date,
     );
   }

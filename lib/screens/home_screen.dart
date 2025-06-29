@@ -15,9 +15,11 @@ class HomeScreen extends StatefulWidget  {
   State<HomeScreen> createState() => _HomeScreenState();
 }
 
-class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
+class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver, TickerProviderStateMixin {
   List<FoodItem> foodItems = [];
   List<FoodItem> _favoriteFoods = [];
+
+  late TabController _tabController;
 
   // Valeurs max en dur
   double goalCalories = 1700;
@@ -25,12 +27,27 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   double goalCarbs = 150;
   double goalFat = 60;
 
+  // Totaux calculés
+  double get totalCalories =>
+      foodItems.fold(0, (sum, item) => sum + item.totalCalories);
+  double get totalProtein =>
+      foodItems.fold(0, (sum, item) => sum + item.totalProtein);
+  double get totalCarbs =>
+      foodItems.fold(0, (sum, item) => sum + item.totalCarbs);
+  double get totalFat =>
+      foodItems.fold(0, (sum, item) => sum + item.totalFat);
+
+  // Fonction de formatage des nombres pour affichage
+  String formatDouble(double value) => value.toStringAsFixed(0);
+
   @override
   void initState() {
     super.initState();
-    _refreshData();
+    _tabController = TabController(length: 4, vsync: this);
+
     WidgetsBinding.instance.addObserver(this);
     _checkDateAndResetIfNeeded();
+    _refreshData();
   }
 
   @override
@@ -84,6 +101,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   @override
   void dispose() {
     // Très important de se désabonner pour éviter les fuites de mémoire
+    _tabController.dispose(); 
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }
@@ -117,21 +135,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       goalFat = prefs.getDouble('goalFat') ?? 60;
     });
   }
-
-  // Totaux calculés
-  double get totalCalories =>
-      foodItems.fold(0, (sum, item) => sum + item.totalCalories);
-  double get totalProtein =>
-      foodItems.fold(0, (sum, item) => sum + item.totalProtein);
-  double get totalCarbs =>
-      foodItems.fold(0, (sum, item) => sum + item.totalCarbs);
-  double get totalFat =>
-      foodItems.fold(0, (sum, item) => sum + item.totalFat);
-
-  
-
-  // Fonction de formatage des nombres pour affichage
-  String formatDouble(double value) => value.toStringAsFixed(0);
 
   Future<void> _showDeleteFavoriteDialog(FoodItem favorite) async {
     // L'ID ne peut pas être null ici car il vient de la BDD
@@ -169,7 +172,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     );
   }
 
-  Future<void> _showQuantityDialog(FoodItem favorite) async {
+  Future<void> _showQuantityDialog(FoodItem favorite, MealType meal) async {
     final quantityController = TextEditingController();
     final formKey = GlobalKey<FormState>();
 
@@ -219,6 +222,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                   final itemToLog = favorite.copyWith(
                     quantity: newQuantity,
                     date: DateTime.now(),
+                    mealType: meal, 
                     forceIdToNull: true,
                   );
                   
@@ -236,6 +240,54 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           ],
         );
       },
+    );
+  }
+
+   Future<void> _showAddFavoriteToMealDialog(FoodItem favorite) async {
+  // Fonction interne pour gérer la logique après la sélection d'un repas
+    addFavoriteAndRefresh(MealType meal) async {
+      // 1. On ferme le menu
+      Navigator.of(context).pop();
+
+      // 2. On affiche la popup pour demander la quantité
+      await _showQuantityDialog(favorite, meal);
+
+      // 3. On rafraîchit les données (au cas où, bien que _showQuantityDialog le fasse déjà)
+      _refreshData();
+    }
+
+    return showModalBottomSheet<void>(
+    context: context,
+    builder: (BuildContext context) {
+      return Wrap(
+        children: <Widget>[
+          const ListTile(
+            title: Text('Ajouter ce favori à...', style: TextStyle(fontWeight: FontWeight.bold)),
+          ),
+          const Divider(),
+          ListTile(
+            leading: const Icon(Icons.wb_sunny_outlined),
+            title: const Text('Petit-déjeuner'),
+            onTap: () => addFavoriteAndRefresh(MealType.breakfast),
+          ),
+          ListTile(
+            leading: const Icon(Icons.lunch_dining_outlined),
+            title: const Text('Déjeuner'),
+            onTap: () => addFavoriteAndRefresh(MealType.lunch),
+          ),
+          ListTile(
+            leading: const Icon(Icons.dinner_dining_outlined),
+            title: const Text('Dîner'),
+            onTap: () => addFavoriteAndRefresh(MealType.dinner),
+          ),
+          ListTile(
+            leading: const Icon(Icons.fastfood_outlined),
+            title: const Text('Collation'),
+            onTap: () => addFavoriteAndRefresh(MealType.snack),
+          ),
+        ],
+      );
+    },
     );
   }
 
@@ -293,6 +345,92 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     );
   }
 
+  void _showMealSelection() {
+    // Le menu va lancer l'écran d'ajout avec le bon repas en paramètre
+    navigateToAddFoodScreen(MealType meal) {
+      Navigator.pop(context); // On ferme le menu
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (context) => AddFoodScreen(mealType: meal),
+        ),
+      ).then((_) => _refreshData()); // On rafraîchit quand on revient
+    }
+
+      showModalBottomSheet(
+      context: context,
+      builder: (context) {
+        return Wrap(
+          children: [
+            ListTile(
+              leading: const Icon(Icons.wb_sunny_outlined),
+              title: const Text('Petit-déjeuner'),
+              onTap: () => navigateToAddFoodScreen(MealType.breakfast),
+            ),
+            ListTile(
+              leading: const Icon(Icons.lunch_dining_outlined),
+              title: const Text('Déjeuner'),
+              onTap: () => navigateToAddFoodScreen(MealType.lunch),
+            ),
+            ListTile(
+              leading: const Icon(Icons.dinner_dining_outlined),
+              title: const Text('Dîner'),
+              onTap: () => navigateToAddFoodScreen(MealType.dinner),
+            ),
+            ListTile(
+              leading: const Icon(Icons.fastfood_outlined),
+              title: const Text('Collation'),
+              onTap: () => navigateToAddFoodScreen(MealType.snack),
+            ),
+          ],
+        );
+      },
+      );
+    }
+
+
+  Map<MealType, List<FoodItem>> _groupFoodItemsByMeal(List<FoodItem> items) {
+    // On initialise une map avec une liste vide pour chaque repas
+    final Map<MealType, List<FoodItem>> groupedItems = {
+      MealType.breakfast: [],
+      MealType.lunch: [],
+      MealType.dinner: [],
+      MealType.snack: [],
+    };
+
+    // On parcourt la liste et on place chaque aliment dans la bonne catégorie
+    for (final item in items) {
+      if (item.mealType != null) {
+        groupedItems[item.mealType]!.add(item);
+      }
+    }
+    return groupedItems;
+  }
+
+  // lib/screens/home_screen.dart > _HomeScreenState
+
+  // NOUVELLE MÉTHODE pour construire la liste d'aliments d'un repas
+  Widget _buildMealList(List<FoodItem> mealItems) {
+    if (mealItems.isEmpty) {
+      return const Center(
+        child: Text('Aucun aliment pour ce repas.'),
+      );
+    }
+    return ListView.builder(
+      padding: EdgeInsets.zero, // Enlève le padding par défaut du ListView
+      itemCount: mealItems.length,
+      itemBuilder: (context, index) {
+        final item = mealItems[index];
+        // On retourne le même ListTile que vous aviez avant
+        return ListTile(
+          title: Text(item.name ?? 'Aliment sans nom'),
+          subtitle: Text('${item.quantity}g'),
+          trailing: Text('${item.totalCalories.toStringAsFixed(0)} kcal'),
+        );
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     
@@ -302,6 +440,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
     final gaugeRadiusMacro = (availableWidth / 3) / 2; // Calcul dynamique du rayon
     final gaugeRadiusCalories = 90.0;
+
+    final groupedFoodItems = _groupFoodItemsByMeal(foodItems);
 
     return Scaffold(
       appBar: PreferredSize(
@@ -331,230 +471,221 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         tooltip: 'Objectifs',
         onPressed: () async {
           final result = await Navigator.push(
-                context,
-                MaterialPageRoute(builder: (context) => const SettingsScreen()),
+              context,
+              MaterialPageRoute(builder: (context) => const SettingsScreen()),
               );
-      
-              // Si le résultat est 'true', cela veut dire qu'on a sauvegardé
-              if (result == true) {
-              // On recharge les objectifs (et tout le reste si besoin)
-              _refreshData(); 
-          }
-      },
-     ),
-    ],
+    
+            // Si le résultat est 'true', cela veut dire qu'on a sauvegardé
+            if (result == true) {
+            // On recharge les objectifs (et tout le reste si besoin)
+            _refreshData(); 
+            }
+          },
+        ),
+      ],
     ),
     ),
-        body: Padding(
-          padding: const EdgeInsets.all(2),
-          child: 
-          ListView(
-            children: [
-              Card(
-                elevation:4.0,
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16.0)),
-                child: Padding(
-                  padding: const EdgeInsets.all(16.0),
-                  child: Column(
-                    children: [
-                      // La colonne que vous aviez déjà pour les jauges
-                      Column(
-                        children: [
-                          CircularPercentIndicator(
-                    radius: gaugeRadiusCalories,
-                    lineWidth: 12.0,
-                    percent: (totalCalories / goalCalories).clamp(0, 1),
-                    center: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Text(
-                          totalCalories.toStringAsFixed(0),
-                          style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 36),
-                        ),
-                        const Text(
-                          'KCAL CONSOMMÉES', // J'ai ajusté le texte pour plus de clarté
-                          style: TextStyle(fontSize: 10, color: Colors.grey),
-                        ),
-                      ],
-                    ),
-                progressColor: Colors.green,
-                backgroundColor: Colors.green.shade100,
-                circularStrokeCap: CircularStrokeCap.round,
-              ),
-              const SizedBox(height: 7.0),
-              Text(
-                    '${(goalCalories - totalCalories).clamp(0, goalCalories).toStringAsFixed(0)} restantes',
-                    style: const TextStyle(fontSize: 14, color: Colors.black54),
-                  ), 
-                        ],
-              ),
-              // Jauges macronutriments en ligne
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceAround,
+    body: Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 12.0, vertical: 8.0),
+      child: 
+      Column(
+        children: [
+          Card(
+            elevation:4.0,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10.0)),
+            child: Padding(
+              padding: const EdgeInsets.all(10.0),
+              child: Column(
                 children: [
-                  _buildMacroIndicator(
-                      radius: gaugeRadiusMacro,
-                      label: 'Glucides',
-                      value: totalCarbs,
-                      max: goalCarbs,
-                      color: Colors.blue),
-                  _buildMacroIndicator(
-                      radius: gaugeRadiusMacro,
-                      label: 'Protéines',
-                      value: totalProtein,
-                      max: goalProtein,
-                      color: Colors.red),
-                  _buildMacroIndicator(
-                     radius: gaugeRadiusMacro,
-                      label: 'Lipides',
-                      value: totalFat,
-                      max: goalFat,
-                      color: Colors.orange),
-                ],
-                ),
-              ]
-                  ),
-                ),
-              ),
-              const SizedBox(height: 16),
-              if (_favoriteFoods.isNotEmpty) 
-              Card(
-                elevation:2.0,
-                shape : RoundedRectangleBorder(borderRadius: BorderRadius.circular(16.0)),
-                child: Padding(
-                  padding: const EdgeInsets.all(16.0),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
+                  // La colonne que vous aviez déjà pour les jauges
+                  Column(
+                    children: [
+                      CircularPercentIndicator(
+                radius: gaugeRadiusCalories,
+                lineWidth: 12.0,
+                percent: (totalCalories / goalCalories).clamp(0, 1),
+                center: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
                   children: [
+                    Text(
+                      totalCalories.toStringAsFixed(0),
+                      style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 36),
+                    ),
                     const Text(
-                    'Favoris',
-                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-                  ),
-                  const SizedBox(height: 8),
-                  Wrap(
-                    spacing: 8,
-                    runSpacing: 8,
-                    children: _favoriteFoods.map((food) {
-                      // On enveloppe le bouton dans un GestureDetector
-                      return GestureDetector(
-                        onLongPress: () {
-                          // L'appui long déclenche la suppression
-                          _showDeleteFavoriteDialog(food);
-                        },
-                        child: ElevatedButton(
-                          // L'appui court (onPressed) garde son comportement normal
-                          onPressed: () => _showQuantityDialog(food),
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: Colors.grey[200],
-                            foregroundColor: Colors.black,
-                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                          ),
-                          child: Text(food.name ?? 'Sans nom'),
-                        ),
-                      );
-                    }).toList(),
-                  ),
+                      'KCAL CONSOMMÉES', // J'ai ajusté le texte pour plus de clarté
+                      style: TextStyle(fontSize: 10, color: Colors.grey),
+                    ),
                   ],
                 ),
+            progressColor: Colors.green,
+            backgroundColor: Colors.green.shade100,
+            circularStrokeCap: CircularStrokeCap.round,
+          ),
+          const SizedBox(height: 7.0),
+          Text(
+                '${(goalCalories - totalCalories).clamp(0, goalCalories).toStringAsFixed(0)} restantes',
+                style: const TextStyle(fontSize: 14, color: Colors.black54),
+              ), 
+                    ],
+          ),
+          // Jauges macronutriments en ligne
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceAround,
+            children: [
+              _buildMacroIndicator(
+                  radius: gaugeRadiusMacro,
+                  iconData: Icons.local_fire_department_outlined,
+                  label: 'Glucides',
+                  value: totalCarbs,
+                  max: goalCarbs,
+                  color: Colors.blue),
+              _buildMacroIndicator(
+                  radius: gaugeRadiusMacro,
+                  iconData: Icons.fitness_center_outlined,
+                  label: 'Protéines',
+                  value: totalProtein,
+                  max: goalProtein,
+                  color: Colors.red),
+              _buildMacroIndicator(
+                  radius: gaugeRadiusMacro,
+                  iconData: Icons.water_drop_outlined,
+                  label: 'Lipides',
+                  value: totalFat,
+                  max: goalFat,
+                  color: Colors.orange),
+            ],
+            ),
+          ]
               ),
             ),
+          ),
+          const SizedBox(height: 16),
+          if (_favoriteFoods.isNotEmpty) 
+            Card(
+              elevation:2.0,
+              shape : RoundedRectangleBorder(borderRadius: BorderRadius.circular(16.0)),
+              child: Padding(
+                padding: const EdgeInsets.all(16.0),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                  'Favoris',
+                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                ),
+                const SizedBox(height: 8),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: _favoriteFoods.map((food) {
+                    // On enveloppe le bouton dans un GestureDetector
+                    return GestureDetector(
+                      onLongPress: () {
+                        // L'appui long déclenche la suppression
+                        _showDeleteFavoriteDialog(food);
+                      },
+                      child: ElevatedButton(
+                        // L'appui court (onPressed) garde son comportement normal
+                        onPressed: () => _showAddFavoriteToMealDialog(food),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.grey[200],
+                          foregroundColor: Colors.black,
+                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                        ),
+                        child: Text(food.name ?? 'Sans nom'),
+                      ),
+                    );
+                  }).toList(),
+                ),
+                ],
+              ),
+            ),
+          ),
   
-            const SizedBox(height: 16),
-              
-              Card(
-                elevation: 2.0,
+          const SizedBox(height: 16),
+
+          Expanded(
+            child: Card(
+              elevation: 2.0,
                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16.0)),
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 8.0),
-                  child: Column(
-                    children: [
-                      const ListTile( // Un titre pour la section
-                        leading: Icon(Icons.menu_book_rounded, color: Colors.green),
-                        title: Text('Journal du jour', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
-                      ),
-                const Divider(),
-                      foodItems.isEmpty
-                          ? const Padding(
-                              padding: EdgeInsets.all(24.0),
-                              child: Text('Aucun aliment ajouté aujourd\'hui'),
-                            )
-                          : ListView.builder(
-                              // Important pour que le ListView dans un autre ListView fonctionne
-                              shrinkWrap: true,
-                              physics: const NeverScrollableScrollPhysics(), 
-                              itemCount: foodItems.length,
-                              itemBuilder: (context, index) {
-                                final item = foodItems[index];
-                                return ListTile(
-                                  title: Text(item.name ?? 'Aliment sans nom'),
-                            subtitle: Text(
-                                '${item.quantity}g — ${item.totalCalories.toStringAsFixed(0)} kcal'),
-                            trailing: Column(
-                              crossAxisAlignment: CrossAxisAlignment.end,
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              children: [
-                                Text('${item.totalProtein.toStringAsFixed(1)} g P'),
-                                Text('${item.totalCarbs.toStringAsFixed(1)} g G'),
-                                Text('${item.totalFat.toStringAsFixed(1)} g L'),
-                              ],
-                            ),
-                          );
-                        },
-                      ),
-                    ],              
-                  ),
-              ),
-            ),
-  
-          const SizedBox(height:80),
-          ],
-        ),
-      ),
-      floatingActionButton: FloatingActionButton(
-        onPressed: () async {
-          final shouldRefresh = await Navigator.push<bool>(
-            context,
-            MaterialPageRoute(
-              builder: (context) => const AddFoodScreen(),
-            ),
-          );
-  
-          // Si on a reçu 'true', c'est qu'un ajout a été fait
-          if (shouldRefresh == true && mounted) {
-            _refreshData(); // On recharge toutes les données
-          }
-        },
-        child: const Icon(Icons.add),
-      ),
-    );
-  }
+                clipBehavior: Clip.antiAlias, // Important pour que les coins arrondis coupent bien le contenu
+                child: Column(
+                  children: [
+                    // 1. LA BARRE D'ONGLETS
+                    TabBar(
+                      controller: _tabController,
+                      labelColor: Theme.of(context).colorScheme.primary,
+                      unselectedLabelColor: Colors.grey,
+                      tabs: const [
+                        Tab(text: 'Petit-déj'),
+                        Tab(text: 'Déjeuner'),
+                        Tab(text: 'Dîner'),
+                        Tab(text: 'Collation'),
+                      ],
+                    ),
+                    const Divider(height: 1),
 
-  Widget _buildMacroIndicator({
-    required double radius,
-    required String label,
-    required double value,
-    required double max,
-    required Color color,
-  }) {
-    double percent = (value / max).clamp(0, 1);
-
-    return Column(
-      children: [
-        CircularPercentIndicator(
-          radius : radius,
-          lineWidth: 8,
-          percent: percent,
-          center: Text('${value.toStringAsFixed(0)}\n/\n${max.toStringAsFixed(0)}',
-              textAlign: TextAlign.center,
-              style:
-                  TextStyle(fontWeight: FontWeight.bold, color: color, fontSize: 14)),
-          progressColor: color,
-          backgroundColor: color.withAlpha((0.3 * 255).toInt()),
-          circularStrokeCap: CircularStrokeCap.round,
-        ),
-        const SizedBox(height: 8),
-        Text(label, style: TextStyle(color: color, fontWeight: FontWeight.bold)),
+                    // 2. LA VUE AVEC LE CONTENU SWIPABLE
+                    Expanded(
+                      child: TabBarView(
+                        controller: _tabController,
+                        children: [
+                          // On génère une vue pour chaque type de repas
+                          _buildMealList(groupedFoodItems[MealType.breakfast]!),
+                          _buildMealList(groupedFoodItems[MealType.lunch]!),
+                          _buildMealList(groupedFoodItems[MealType.dinner]!),
+                          _buildMealList(groupedFoodItems[MealType.snack]!),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+            ),
+          ),
+            
+        const SizedBox(height:80),
       ],
+    ),
+  ),
+  floatingActionButton: FloatingActionButton(
+    onPressed: _showMealSelection, // <-- On appelle le menu
+    child: const Icon(Icons.add),
+    ),
+    );
+}
+
+Widget _buildMacroIndicator({
+  required double radius,
+  required IconData iconData,
+  required String label,
+  required double value,
+  required double max,
+  required Color color,
+}) {
+  return CircularPercentIndicator(
+    radius: radius,
+    lineWidth: 9.0, // On peut se permettre une ligne un peu plus épaisse
+    percent: (value / max).clamp(0, 1),
+    backgroundColor: color.withAlpha(50), // Fond plus subtil
+    progressColor: color,
+    circularStrokeCap: CircularStrokeCap.round,
+    center: Column(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: [
+        Icon(iconData, color: color, size: radius * 0.45), // Taille proportionnelle au rayon
+        
+        const SizedBox(height: 4),
+
+        Text(
+          value.toStringAsFixed(0) + ' g / ' + max.toStringAsFixed(0) + ' g',
+          style: TextStyle(
+            color: color,
+            fontSize: radius * 0.2, // Taille proportionnelle
+            fontWeight: FontWeight.bold,
+           ),
+          ),
+        ],
+      ),
     );
   }
 }
