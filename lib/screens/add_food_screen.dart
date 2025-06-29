@@ -3,9 +3,14 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import '../models/food_item.dart';
 import '../helpers/database_helper.dart';
+import 'barcode_scanner_screen.dart';
 
 class AddFoodScreen extends StatefulWidget {
-  const AddFoodScreen({super.key});
+
+  final FoodItem? initialFoodItem;
+
+  const AddFoodScreen({super.key, this.initialFoodItem});
+  
 
   @override
   State<AddFoodScreen> createState() => _AddFoodScreenState();
@@ -23,6 +28,24 @@ class _AddFoodScreenState extends State<AddFoodScreen> {
   final _quantityController = TextEditingController();
 
   @override
+  void initState() {
+    super.initState();
+    // Si un aliment initial est fourni (par le scanner), on remplit les champs
+    if (widget.initialFoodItem != null) {
+      _populateFields(widget.initialFoodItem!);
+    }
+  }
+
+  void _populateFields(FoodItem food) {
+    _nameController.text = food.name ?? '';
+    _caloriesController.text = food.caloriesPer100g.toStringAsFixed(1);
+    _proteinController.text = food.proteinPer100g.toStringAsFixed(1);
+    _carbsController.text = food.carbsPer100g.toStringAsFixed(1);
+    _fatController.text = food.fatPer100g.toStringAsFixed(1);
+    _quantityController.text = food.quantity?.toStringAsFixed(0) ?? '0';
+  }
+
+  @override
   void dispose() {
     // Nettoyage
     _nameController.dispose();
@@ -37,6 +60,10 @@ class _AddFoodScreenState extends State<AddFoodScreen> {
   Future<void> _addToFavorites(FoodItem item) async {
     await DatabaseHelper.instance.createFavorite(item);
     
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Nouveau favori enregistré')),
+    );
+
     if(context.mounted) {
       Navigator.pop(context, true); // On retourne 'true' pour signaler un changement
     }
@@ -94,6 +121,33 @@ class _AddFoodScreenState extends State<AddFoodScreen> {
           key: _formKey,
           child: ListView(
             children: [
+              ElevatedButton.icon(
+                icon: const Icon(Icons.barcode_reader),
+                label: const Text('Scanner un produit'),
+                onPressed: () async {
+                  // On navigue vers l'écran de scan et on attend un résultat
+                  final FoodItem? scannedFood = await Navigator.push(
+                    context,
+                    MaterialPageRoute(builder: (context) => const BarcodeScannerScreen()),
+                  );
+
+                  // Si on a reçu un aliment, on remplit les champs
+                  if (scannedFood != null && mounted) {
+                    _populateFields(scannedFood);
+                  }
+                },
+              ),
+              Row(
+                children: [
+                  Expanded(child: Divider()),
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 8.0),
+                    child: Text('OU'),
+                  ),
+                  Expanded(child: Divider()),
+                ],
+              ),
+            
               _buildTextField(label: 'Nom', controller: _nameController),
               _buildTextField(label: 'Calories / 100g', controller: _caloriesController, isNumeric: true),
               _buildTextField(label: 'Protéines / 100g', controller: _proteinController, isNumeric: true),
@@ -122,11 +176,7 @@ class _AddFoodScreenState extends State<AddFoodScreen> {
                   );
                   
                   // On utilise la méthode du helper qui évite les doublons
-                  DatabaseHelper.instance.createFavorite(item);
-
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('Ajouté aux favoris')),
-                  );
+                  _addToFavorites(item);
                 }
               },
                 icon: const Icon(Icons.star),
