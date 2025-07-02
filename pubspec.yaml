@@ -45,6 +45,8 @@ dependencies:
   google_fonts: ^6.2.1
   intl: ^0.19.0
   flutter_svg: ^2.2.0
+  fl_chart: ^0.68.0
+
   
 dev_dependencies:
   flutter_test:
@@ -56,23 +58,21 @@ dev_dependencies:
   # package. See that file for information about deactivating specific lint
   # rules and activating additional ones.
   flutter_lints: ^6.0.0
+  flutter_launcher_icons: ^0.13.1
 
 # For information on the generic Dart part of this file, see the
 # following page: https://dart.dev/tools/pub/pubspec
 
 # The following section is specific to Flutter packages.
 flutter:
-
   # La ligne suivante active l'utilisation des icônes Material.
   uses-material-design: true
-
   # C'est ici que l'on déclare nos assets.
   assets:
     - assets/images/
-
+    
   # An image asset can refer to one or more resolution-specific "variants", see
   # https://flutter.dev/to/resolution-aware-images
-
   # For details regarding adding assets from package dependencies, see
   # https://flutter.dev/to/asset-from-package
 
@@ -95,3 +95,9 @@ flutter:
   #
   # For details regarding fonts from package dependencies,
   # see https://flutter.dev/to/font-from-package
+  
+flutter_launcher_icons:
+    android: true # Activer pour Android
+    ios: true     # Activer pour iOS (c'est une bonne pratique de le laisser)
+    image_path: "assets/images/launcher_icon.png" # Chemin vers VOTRE image
+    min_sdk_android: 21

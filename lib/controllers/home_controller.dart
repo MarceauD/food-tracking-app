@@ -4,6 +4,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../helpers/database_helper.dart';
 import '../models/food_item.dart';
 import '../models/saved_meals.dart';
+import '../models/daily_summary.dart';
 
 class HomeController {
 
@@ -31,6 +32,14 @@ class HomeController {
     return await DatabaseHelper.instance.getSavedMeals();
   }
 
+  Future<void> saveOrUpdateSummary(DailySummary summary) async {
+    await DatabaseHelper.instance.saveOrUpdateSummary(summary);
+  }
+  
+  Future<List<DailySummary>> getRecentSummaries() async {
+    return await DatabaseHelper.instance.getRecentSummaries(7); // On charge les 7 derniers jours
+  }
+
   // Logique de chargement du journal
   Future<List<FoodItem>> loadFoodLogForToday() async {
     return await DatabaseHelper.instance.getFoodLogForDate(DateTime.now());
@@ -39,6 +48,14 @@ class HomeController {
   // Logique pour vider le journal
   Future<void> clearLog() async {
     await DatabaseHelper.instance.clearFoodLog();
+  }
+
+  Future<void> deleteFoodLogItem(int id) async {
+    await DatabaseHelper.instance.deleteFoodLog(id);
+  }
+
+  Future<void> updateFoodLogItemQuantity(int id, double newQuantity) async {
+    await DatabaseHelper.instance.updateFoodLogQuantity(id, newQuantity);
   }
 
   // Logique de traitement pure (pas d'appel externe)

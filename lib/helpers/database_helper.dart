@@ -4,6 +4,8 @@ import 'package:sqflite/sqflite.dart';
 import 'package:path/path.dart';
 import '../models/food_item.dart';
 import '../models/saved_meals.dart';
+import '../models/portion.dart';
+import '../models/daily_summary.dart';
 
 class DatabaseHelper {
   // Singleton pour s'assurer qu'on a une seule instance de la BDD
@@ -21,7 +23,17 @@ class DatabaseHelper {
     final dbPath = await getDatabasesPath();
     final path = join(dbPath, filePath);
 
-    return await openDatabase(path, version: 1, onCreate: _createDB);
+    return await openDatabase(
+      path,
+      version: 4, 
+      onCreate: _createDB,
+      onUpgrade: _upgradeDB, // <-- On ajoute cette ligne
+    );
+  }
+
+  Future<void> _upgradeDB(Database db, int oldVersion, int newVersion) async {
+  // Pour cette mise à jour simple, nous allons supprimer les anciennes tables
+  // et les recréer. ATTENTION : ceci efface toutes les données existantes.
   }
 
   // Création des tables
@@ -80,6 +92,95 @@ class DatabaseHelper {
       FOREIGN KEY (saved_meal_id) REFERENCES saved_meals (id) ON DELETE CASCADE
     )
     ''');
+
+    await db.execute('''
+    CREATE TABLE common_portions (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      food_keyword TEXT NOT NULL,
+      portion_name TEXT NOT NULL,
+      weight_in_grams REAL NOT NULL
+    )
+    ''');
+
+    await db.execute('''
+    CREATE TABLE daily_summary (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      date TEXT UNIQUE,
+      total_calories REAL NOT NULL,
+      total_carbs REAL NOT NULL,
+      total_protein REAL NOT NULL,
+      total_fat REAL NOT NULL,
+      goal_calories REAL NOT NULL
+    )
+    ''');
+
+    await db.execute('''
+   INSERT INTO common_portions (food_keyword, portion_name, weight_in_grams) VALUES
+    -- FRUITS
+    ('oeuf', '1 oeuf moyen', 50),
+    ('oeuf', '1 jaune', 20),
+    ('oeuf', '1 blanc', 30),
+    ('pomme', '1 petite', 100),
+    ('pomme', '1 moyenne', 150),
+    ('banane', '1 petite', 90),
+    ('banane', '1 moyenne', 120),
+    ('orange', '1 orange', 150),
+    ('clémentine', '1 clémentine', 50),
+    ('fraise', '1 poignée', 100),
+    ('framboise', '1 poignée', 70),
+    ('kiwi', '1 kiwi', 75),
+    ('avocat', '1/2 avocat', 70),
+    
+    -- FÉCULENTS
+    ('pain', '1 tranche (mie)', 25),
+    ('pain', '1 tranche (complet)', 40),
+    ('pain', '1 baguette', 250),
+    ('riz', '1 portion (cuit)', 150),
+    ('pâtes', '1 portion (cuites)', 180),
+    ('semoule', '1 portion (cuite)', 150),
+    ('pomme de terre', '1 petite', 80),
+    ('pomme de terre', '1 moyenne', 120),
+    ('flocons d''avoine', '1 bol', 40),
+    ('lentilles', '1 portion (cuites)', 200),
+    
+    -- LÉGUMES
+    ('tomate', '1 tomate', 120),
+    ('tomate', '1 tomate cerise', 10),
+    ('carotte', '1 carotte', 100),
+    ('courgette', '1/2 courgette', 125),
+    ('oignon', '1 oignon', 100),
+    ('ail', '1 gousse', 5),
+    ('salade', '1 bol', 50),
+    
+    -- VIANDES & POISSONS
+    ('poulet', '1 filet', 120),
+    ('poulet', '1 cuisse', 150),
+    ('jambon', '1 tranche', 45),
+    ('lardons', '1 portion', 75),
+    ('steak', '1 steak haché', 100),
+    ('saumon', '1 pavé', 130),
+    ('thon', '1 petite boîte', 90),
+    
+    -- PRODUITS LAITIERS
+    ('lait', '1 verre', 200),
+    ('lait', '1 bol', 250),
+    ('yaourt', '1 pot', 125),
+    ('fromage blanc', '1 portion', 100),
+    ('camembert', '1/8 de part', 30),
+    ('fromage', '1 tranche', 30),
+    ('parmesan', '1 c. à soupe', 10),
+    
+    -- SUCRES, GRAS & AUTRES
+    ('sucre', '1 morceau', 5),
+    ('sucre', '1 c. à café', 5),
+    ('huile', '1 c. à soupe', 10),
+    ('beurre', '1 noisette', 10),
+    ('confiture', '1 c. à café', 15),
+    ('miel', '1 c. à café', 10),
+    ('chocolat', '1 carré', 10),
+    ('amandes', '1 poignée', 25),
+    ('noix', '1 poignée', 25)
+    ''');
   }
 
   // --- Opérations sur le Journal ---
@@ -107,9 +208,46 @@ class DatabaseHelper {
     }
   }
 
+  Future<int> deleteFoodLog(int id) async {
+    final db = await instance.database;
+    return await db.delete('food_log', where: 'id = ?', whereArgs: [id]);
+  }
+
   Future<int> clearFoodLog() async {
       final db = await instance.database;
       return await db.delete('food_log');
+  }
+
+  Future<int> updateFoodLogQuantity(int id, double newQuantity) async {
+    final db = await instance.database;
+    return await db.update(
+      'food_log',
+      {'quantity': newQuantity},
+      where: 'id = ?',
+      whereArgs: [id],
+    );
+  }
+
+  // Sauvegarde ou met à jour le résumé du jour (logique "Upsert")
+  Future<void> saveOrUpdateSummary(DailySummary summary) async {
+    final db = await instance.database;
+    await db.insert(
+      'daily_summary',
+      summary.toMap(),
+      // Si une entrée pour cette date existe déjà, on la remplace.
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
+  }
+
+  // Récupère les résumés des X derniers jours
+  Future<List<DailySummary>> getRecentSummaries(int days) async {
+    final db = await instance.database;
+    final maps = await db.query(
+      'daily_summary',
+      orderBy: 'date DESC',
+      limit: days,
+    );
+    return maps.map((map) => DailySummary.fromMap(map)).toList();
   }
 
   // --- Opérations sur les Favoris ---
@@ -160,6 +298,29 @@ class DatabaseHelper {
     } else {
       return [];
     }
+  }
+
+  Future<List<Portion>> getPortionsForFood(String foodName) async {
+    final db = await instance.database;
+    final lowerFoodName = foodName.toLowerCase();
+
+    // Cette recherche est simple mais efficace pour commencer
+    final res = await db.query(
+      'common_portions',
+      where: 'food_keyword IN (SELECT value FROM json_each(?) WHERE value LIKE ?)',
+      whereArgs: [
+        '["${lowerFoodName.split(' ').join('","')}"]',
+        '%${lowerFoodName.split(' ').first}%'
+      ],
+    );
+
+    if (res.isNotEmpty) {
+      return res.map((json) => Portion(
+        name: json['portion_name'] as String,
+        weightInGrams: json['weight_in_grams'] as double,
+      )).toList();
+    }
+    return [];
   }
 
   //opérations sur les repas sauvegardés

@@ -32,22 +32,69 @@ class MyApp extends StatelessWidget {
     return MaterialApp(
       title: 'Mon Suivi Nutritionnel',
       theme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(seedColor: Colors.green),
+        
         useMaterial3: true,
 
-        textTheme: GoogleFonts.poppinsTextTheme(Theme.of(context).textTheme),
+        scaffoldBackgroundColor: const Color(0xFFF8F9FA), // Un gris très clair et neutre
 
-        // Un fond global un peu plus doux que le blanc pur
-        scaffoldBackgroundColor: const Color(0xFFF7F9F9),
+        colorScheme: ColorScheme.fromSeed(
+          seedColor: Colors.green,
+          primary: Colors.green.shade600, // Un vert un peu plus soutenu pour les accents
+          surface: const Color(0xFFF8F9FA),
+          background: const Color(0xFFF8F9FA), // Le même que le scaffold
+        ),
 
+        
         // Un thème personnalisé pour toutes les cartes de l'application
         cardTheme: CardThemeData(
-          elevation: 2.0, // Une ombre plus subtile
-          // On donne une couleur verte à l'ombre, la rendant beaucoup plus douce
-          shadowColor: Colors.green.withOpacity(0.2), 
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16.0)),
+          elevation: 1.5, // Une ombre très subtile pour un effet de flottement
+          shadowColor: Colors.black.withOpacity(0.08), // Une ombre douce
+          surfaceTintColor: Colors.white, // Très important pour garder les cartes blanches en Material 3
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16.0))
         ),
         
+        textTheme: GoogleFonts.poppinsTextTheme(ThemeData.light().textTheme).copyWith(
+          // Style pour les grands titres (ex: "Bonjour !")
+          headlineSmall: GoogleFonts.poppins(
+            fontSize: 22,
+            fontWeight: FontWeight.bold,
+            color: const Color(0xFF343A40), // Un noir/gris très foncé
+          ),
+          // Style pour les titres de section ou de carte
+          titleLarge: GoogleFonts.poppins(
+            fontSize: 18,
+            fontWeight: FontWeight.w600, // Semi-gras
+            color: const Color(0xFF343A40),
+          ),
+          // Style pour le corps de texte normal
+          bodyMedium: GoogleFonts.poppins(
+            fontSize: 14,
+            color: Colors.grey[800],
+          ),
+          // Style pour les textes secondaires ou les sous-titres
+          bodySmall: GoogleFonts.poppins(
+            fontSize: 12,
+            color: Colors.grey[600],
+          ),
+        ),
+
+        inputDecorationTheme: InputDecorationTheme(
+          border: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(12.0),
+            borderSide: const BorderSide(color: Color(0xFFEEEEEE)),
+          ),
+          enabledBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(12.0),
+            borderSide: BorderSide(color: Colors.grey.shade300),
+          ),
+          focusedBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(12.0),
+            borderSide: BorderSide(color: const Color(0xFF43A047), width: 2.0),
+          ),
+          filled: true,
+          fillColor: Colors.white,
+        ),
+
       ),
       home: const HomeScreen(), // L'écran principal est HomeScreen
     );

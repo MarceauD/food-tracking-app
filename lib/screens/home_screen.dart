@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
-import 'package:percent_indicator/percent_indicator.dart';
-import 'package:google_fonts/google_fonts.dart';
 import '../models/food_item.dart';
+import '../models/daily_summary.dart';
 import 'add_food_screen.dart';
 import 'settings_screen.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -13,6 +12,9 @@ import '../controllers/home_controller.dart';
 import '../models/saved_meals.dart';
 import '../widgets/home/quick_add_card.dart';
 import '../widgets/common/empty_state_widget.dart';
+import 'stats_screen.dart';
+import '../widgets/common/primary_button.dart';
+import '../widgets/common/secondary_button.dart';
 
 
 class HomeScreen extends StatefulWidget  {
@@ -29,6 +31,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver, Ti
   List<SavedMeal> _savedMeals = [];
 
   late TabController _tabController;
+
+  int _selectedIndex = 0;
 
   // Valeurs max en dur
   double goalCalories = 1700;
@@ -72,13 +76,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver, Ti
   Future<void> _checkDateAndResetIfNeeded() async {
     final prefs = await SharedPreferences.getInstance();
     
-    // 1. Vérifier si l'option est activée
-    final bool autoResetEnabled = prefs.getBool('autoResetEnabled') ?? true;
-    if (!autoResetEnabled) {
-      _refreshData(); // On charge les données sans réinitialiser
-      return;
-    }
-
     // 2. Récupérer la dernière date de visite
     final String? lastVisitDateStr = prefs.getString('lastVisitDate');
     final today = DateTime.now();
@@ -133,21 +130,29 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver, Ti
       _savedMeals = savedMeals;
       foodItems = log;
     });
+
+    final summary = DailySummary(
+      date: DateTime.now(),
+      totalCalories: totalCalories,
+      totalCarbs: totalCarbs,
+      totalProtein: totalProtein,
+      totalFat: totalFat,
+      goalCalories: goalCalories,
+    );
+    await _controller.saveOrUpdateSummary(summary);
   }
 
   Future<void> _addSavedMealToLog(SavedMeal savedMeal, MealType mealType) async {
   final now = DateTime.now();
-  // On parcourt chaque aliment du repas sauvegardé
   for (final itemTemplate in savedMeal.items) {
-    // Pour chaque, on crée une nouvelle entrée de log avec la bonne date et le bon repas
     final itemToLog = itemTemplate.copyWith(
       date: now,
       mealType: mealType,
-      forceIdToNull: true, // Crucial pour obtenir un nouvel ID dans la BDD
+      forceIdToNull: true,
     );
     await DatabaseHelper.instance.createFoodLog(itemToLog);
+
   }
-  _refreshData(); // On rafraîchit toute l'interface
 }
 
   Future<void> _loadFavoriteFoodsFromDb() async {
@@ -175,22 +180,19 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver, Ti
           title: Text('Supprimer le favori ?'),
           content: Text('Voulez-vous vraiment supprimer "${favorite.name}" de vos favoris ?'),
           actions: <Widget>[
-            TextButton(
-              child: const Text('Annuler'),
+            SecondaryButton(
+              text: 'Annuler',
               onPressed: () {
                 Navigator.of(context).pop();
               },
             ),
-            TextButton(
-              style: TextButton.styleFrom(foregroundColor: Colors.red),
-              child: const Text('Supprimer'),
+            PrimaryButton(
+              text: 'Confirmer',
               onPressed: () async {
-                // On appelle la nouvelle méthode du helper
                 await DatabaseHelper.instance.deleteFavorite(favoriteId);
-                
                 if (context.mounted) {
-                  Navigator.of(context).pop(); // Ferme la popup
-                  _loadFavoriteFoodsFromDb(); // Recharge la liste des favoris pour rafraîchir l'UI
+                  Navigator.of(context).pop();
+                  _refreshData();
                 }
               },
             ),
@@ -204,7 +206,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver, Ti
   final nameController = TextEditingController();
   
   // On pré-remplit avec un nom par défaut
-  nameController.text = 'Mon ${mealType.name} habituel';
+  nameController.text = '${mealType.frenchName} favori';
   return showDialog<void>(
     context: context,
     builder: (context) {
@@ -216,24 +218,27 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver, Ti
           autofocus: true,
         ),
         actions: [
-          TextButton(
-            child: const Text('Annuler'),
-            onPressed: () => Navigator.of(context).pop(),
+          SecondaryButton(
+              text: 'Annuler',
+              onPressed: () {
+                Navigator.of(context).pop();
+              },
           ),
-          ElevatedButton(
-            child: const Text('Sauvegarder'),
-            onPressed: () async {
-              if (nameController.text.isNotEmpty) {
+          PrimaryButton(
+              text: 'Confirmer',
+              onPressed: () async {
+                if (nameController.text.isNotEmpty) {
                 await _controller.saveCurrentMeal(nameController.text, items);
                 if (context.mounted) {
                   Navigator.of(context).pop();
+                  _refreshData();
                   ScaffoldMessenger.of(context).showSnackBar(
                     const SnackBar(content: Text('Repas sauvegardé !')),
                   );
                 }
+                }
               }
-            },
-          ),
+            ),
         ],
       );
     },
@@ -245,59 +250,67 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver, Ti
 // lib/screens/home_screen.dart > _HomeScreenState
 
 Future<void> _showAddSavedMealToMealDialog(SavedMeal meal) async {
-  return showModalBottomSheet<void>(
+  // 1. On attend que le menu se ferme ET nous renvoie un résultat
+  final bool? refreshNeeded = await showModalBottomSheet<bool>(
     context: context,
+    useSafeArea: true,
     builder: (BuildContext context) {
-      return Wrap(
-        children: <Widget>[
-          ListTile(
-            title: Text(
-              'Ajouter "${meal.name}" à...',
-              style: const TextStyle(fontWeight: FontWeight.bold),
-            ),
-          ),
-          const Divider(thickness: 1),
+      final bottomPadding = MediaQuery.of(context).viewPadding.bottom;
 
-          // On transforme le onTap en fonction asynchrone
-          ListTile(
-            leading: const Icon(Icons.wb_sunny_outlined),
-            title: const Text('Petit-déjeuner'),
-            onTap: () async { // <-- async
-              Navigator.pop(context); // On ferme le menu d'abord
-              await _addSavedMealToLog(meal, MealType.breakfast); // <-- On ATTEND la fin de l'opération
-            },
-          ),
+      // Fonction interne pour éviter de répéter du code
+      void handleMealSelection(MealType mealType) async {
+        await _addSavedMealToLog(meal, mealType);
+        if (context.mounted) {
+          // 2. Une fois la sauvegarde terminée, on ferme le menu
+          //    en renvoyant 'true' pour dire "opération réussie".
+          Navigator.pop(context, true);
+        }
+      }
 
-          ListTile(
-            leading: const Icon(Icons.lunch_dining_outlined),
-            title: const Text('Déjeuner'),
-            onTap: () async { // <-- async
-              Navigator.pop(context);
-              await _addSavedMealToLog(meal, MealType.lunch); // <-- await
-            },
+      return SingleChildScrollView(
+        child: Padding(
+          padding: EdgeInsets.only(bottom: bottomPadding),
+          child: Wrap(
+            children: [
+              ListTile(
+                title: Text('Ajouter "${meal.name}" à...', style: const TextStyle(fontWeight: FontWeight.bold)),
+              ),
+              const Divider(thickness: 1),
+              ListTile(
+                leading: const Icon(Icons.wb_sunny_outlined),
+                title: const Text('Petit-déjeuner'),
+                onTap: () => handleMealSelection(MealType.breakfast),
+              ),
+              ListTile(
+                leading: const Icon(Icons.lunch_dining_outlined),
+                title: const Text('Déjeuner'),
+                onTap: () => handleMealSelection(MealType.lunch),
+              ),
+              ListTile(
+                leading: const Icon(Icons.dinner_dining_outlined),
+                title: const Text('Dîner'),
+                onTap: () => handleMealSelection(MealType.dinner),
+              ),
+              ListTile(
+                leading: const Icon(Icons.fastfood_outlined),
+                title: const Text('Collation'),
+                onTap: () => handleMealSelection(MealType.snack),
+              ),
+            ],
           ),
-
-          ListTile(
-            leading: const Icon(Icons.dinner_dining_outlined),
-            title: const Text('Dîner'),
-            onTap: () async { // <-- async
-              Navigator.pop(context);
-              await _addSavedMealToLog(meal, MealType.dinner); // <-- await
-            },
-          ),
-
-          ListTile(
-            leading: const Icon(Icons.fastfood_outlined),
-            title: const Text('Collation'),
-            onTap: () async { // <-- async
-              Navigator.pop(context);
-              await _addSavedMealToLog(meal, MealType.snack); // <-- await
-            },
-          ),
-        ],
+        ),
       );
     },
   );
+
+  // 3. Ce code s'exécute APRÈS la fermeture du menu.
+  //    Si on a reçu le signal 'true', on rafraîchit l'interface.
+  if (refreshNeeded == true && mounted) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('"${meal.name}" ajouté au journal !')),
+    );
+    _refreshData();
+  }
 }
 
   Future<void> _showQuantityDialog(FoodItem favorite, MealType meal) async {
@@ -334,14 +347,14 @@ Future<void> _showAddSavedMealToMealDialog(SavedMeal meal) async {
             ),
           ),
           actions: <Widget>[
-            TextButton(
-              child: const Text('Annuler'),
+            SecondaryButton(
+              text: 'Annuler',
               onPressed: () {
                 Navigator.of(context).pop();
               },
             ),
-            ElevatedButton(
-              child: const Text('Ajouter'),
+            PrimaryButton(
+              text: 'Confirmer',
               onPressed: () async {
                 if (formKey.currentState!.validate()) {
                   final double newQuantity = double.parse(quantityController.text);
@@ -386,8 +399,10 @@ Future<void> _showAddSavedMealToMealDialog(SavedMeal meal) async {
 
     return showModalBottomSheet<void>(
     context: context,
+    useSafeArea: true,
     builder: (BuildContext context) {
-      return Wrap(
+      final bottomPadding = MediaQuery.of(context).viewPadding.bottom;
+      return SingleChildScrollView(child: Padding(padding: EdgeInsets.only(bottom: bottomPadding),child: Wrap(
         children: <Widget>[
           const ListTile(
             title: Text('Ajouter ce favori à...', style: TextStyle(fontWeight: FontWeight.bold)),
@@ -414,6 +429,8 @@ Future<void> _showAddSavedMealToMealDialog(SavedMeal meal) async {
             onTap: () => addFavoriteAndRefresh(MealType.snack),
           ),
         ],
+      ),
+      ),
       );
     },
     );
@@ -424,16 +441,22 @@ Future<void> _showAddSavedMealToMealDialog(SavedMeal meal) async {
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('Confirmation'),
-        content: const Text('Supprimer tous les aliments consommés ?'),
+        content: const Text('Supprimer tous les aliments consommés aujourd''hui ?'),
         actions: [
-          TextButton(
-            onPressed: () async {
-              await _controller.clearLog(); // APPEL AU CONTROLLER
-              _refreshData(); // On rafraîchit l'UI
+          SecondaryButton(
+              text: 'Annuler',
+              onPressed: () {
+                Navigator.of(context).pop();
+              },
+            ),
+          PrimaryButton(
+              text: 'Confirmer',
+              onPressed: () async {
+                await _controller.clearLog(); 
+              _refreshData();
               Navigator.pop(context);
-            },
-            child: const Text('Confirmer'),
-          ),
+              },
+            ),
         ],
       ),
     );
@@ -447,13 +470,14 @@ Future<void> _showAddSavedMealToMealDialog(SavedMeal meal) async {
           title: const Text('Supprimer ce repas ?'),
           content: Text('Voulez-vous vraiment supprimer le repas "${meal.name}" ? Cette action est irréversible.'),
           actions: <Widget>[
-            TextButton(
-              child: const Text('Annuler'),
-              onPressed: () => Navigator.of(context).pop(),
+            SecondaryButton(
+              text: 'Annuler',
+              onPressed: () {
+                Navigator.of(context).pop();
+              },
             ),
-            TextButton(
-              style: TextButton.styleFrom(foregroundColor: Colors.red),
-              child: const Text('Supprimer'),
+            PrimaryButton(
+              text: 'Confirmer',
               onPressed: () async {
                 await _controller.deleteSavedMeal(meal.id!);
                 if (context.mounted) {
@@ -481,11 +505,7 @@ Future<void> _showAddSavedMealToMealDialog(SavedMeal meal) async {
     }
     return Text(
       message,
-      style: GoogleFonts.poppins(
-        color: Colors.black87,
-        fontSize: 22, 
-        fontWeight: FontWeight.bold,
-      ),
+      style: Theme.of(context).textTheme.headlineSmall,
     );
   }
 
@@ -495,10 +515,7 @@ Future<void> _showAddSavedMealToMealDialog(SavedMeal meal) async {
     return Text(
       formattedDate[0].toUpperCase() + formattedDate.substring(1),
       
-      style: GoogleFonts.lato(
-        fontSize: 14,
-        color: Colors.black54, // On passe en blanc-cassé pour la lisibilité sur fond coloré
-      ),
+      style: Theme.of(context).textTheme.bodySmall,
     );
   }
 
@@ -516,8 +533,13 @@ Future<void> _showAddSavedMealToMealDialog(SavedMeal meal) async {
 
       showModalBottomSheet(
       context: context,
+      useSafeArea: true,
       builder: (context) {
-        return Wrap(
+        final bottomPadding = MediaQuery.of(context).viewPadding.bottom;
+        return SingleChildScrollView(
+          child: Padding(padding: EdgeInsets.only(bottom: bottomPadding), 
+        child:  
+        Wrap(
           children: [
             ListTile(
               leading: const Icon(Icons.wb_sunny_outlined),
@@ -540,80 +562,64 @@ Future<void> _showAddSavedMealToMealDialog(SavedMeal meal) async {
               onTap: () => navigateToAddFoodScreen(MealType.snack),
             ),
           ],
+        ),
+        ),
         );
       },
       );
     }
- 
-  @override
-  Widget build(BuildContext context) {
-    final screenWidth = MediaQuery.of(context).size.width;
-    final totalPadding = 16.0 * 4;
-    final availableWidth = screenWidth - totalPadding;
 
-    final gaugeRadiusMacro = (availableWidth / 3) / 2; // Calcul dynamique du rayon
+    PreferredSizeWidget _buildAppBar() {
+    switch (_selectedIndex) {
+      // Cas 1 : Onglet "Progrès" (index 1)
+      case 1:
+        return AppBar(
+          title: Text(
+            'Mes Progrès',
+            style: Theme.of(context).textTheme.headlineSmall,
+          ),
+        );
+
+      // Cas 2 : Onglet "Paramètres" (index 2)
+      case 2:
+        // Notre SettingsScreen a déjà sa propre AppBar, mais par sécurité,
+        // si un jour vous la changez, celle-ci s'affichera.
+        return AppBar(
+          title: Text(
+            'Paramètres',
+            style: Theme.of(context).textTheme.headlineSmall,
+          ),
+        );
+
+      // Cas 0 : Onglet "Journal" (par défaut)
+      case 0:
+      default:
+        // On retourne notre AppBar personnalisée et complexe
+        return PreferredSize(
+          preferredSize: const Size.fromHeight(80.0),
+          child: AppBar(
+            elevation: 0,
+            backgroundColor: Colors.transparent,
+            title: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                _buildWelcomeMessage(),
+                _buildDateDisplay(),
+              ],
+            ),
+            centerTitle: false,
+            
+          ),
+        );
+    }
+  }
+
+  Widget _buildJournalView() {
+    final groupedFoodItems = _controller.groupFoodItemsByMeal(foodItems);
     final gaugeRadiusCalories = 90.0;
 
-
-    final groupedFoodItems = _controller.groupFoodItemsByMeal(foodItems);
-
-    return Scaffold(
-      backgroundColor: Colors.white,
-      appBar: PreferredSize(
-        preferredSize: const Size.fromHeight(80.0),
-      child: AppBar(
-        elevation: 0,
-        backgroundColor: Colors.transparent,
-        title: Column(
-            mainAxisAlignment: MainAxisAlignment.center, // Centre verticalement les textes
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              _buildWelcomeMessage(),
-              _buildDateDisplay(),
-            ],
-          ),
-          centerTitle: false,
-        actions: [
-          IconButton(
-        color: Colors.black54,
-        icon: const Icon(Icons.delete),
-        tooltip: 'Effacer tous les aliments',
-        onPressed: _clearFoodItems,
-       ),
-       IconButton(
-        color: Colors.black54,
-        icon: const Icon(Icons.settings),
-        tooltip: 'Objectifs',
-        onPressed: () async {
-          final result = await Navigator.push(
-              context,
-              MaterialPageRoute(builder: (context) => const SettingsScreen()),
-              );
-    
-            // Si le résultat est 'true', cela veut dire qu'on a sauvegardé
-            if (result == true) {
-            // On recharge les objectifs (et tout le reste si besoin)
-            _refreshData(); 
-            }
-          },
-        ),
-      ],
-    ),
-    ),
-    body: 
-    Container(
-    decoration: BoxDecoration(
-        gradient: LinearGradient(
-          colors: [
-            Colors.green.withOpacity(0.1), // Vert très léger en haut
-            const Color(0xFFF7F9F9),     // Le blanc cassé de notre thème en bas
-          ],
-          begin: Alignment.topCenter,
-          end: Alignment.bottomCenter,
-        ),
-      ),
-    child:
-    Padding(
+    return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 12.0, vertical: 8.0),
         child: ListView(
           children: [
@@ -627,9 +633,7 @@ Future<void> _showAddSavedMealToMealDialog(SavedMeal meal) async {
               goalProtein: goalProtein,
               totalFat: totalFat,
               goalFat: goalFat,
-              gaugeRadiusMacro: gaugeRadiusMacro,
               gaugeRadiusCalories: gaugeRadiusCalories,
-              buildMacroIndicator: _buildMacroIndicator, // On passe la fonction de construction
             ),
             
           const SizedBox(height: 16),
@@ -656,82 +660,197 @@ Future<void> _showAddSavedMealToMealDialog(SavedMeal meal) async {
             const SizedBox(height: 80),
       ],
     ),
-   ),
-  ),
-  floatingActionButton: FloatingActionButton(
-    onPressed: _showMealSelection, // <-- On appelle le menu
-    child: const Icon(Icons.add),
-    ),
+   );
+  }
+ 
+  @override
+  Widget build(BuildContext context) {
+    final List<Widget> pages = <Widget>[
+      _buildJournalView(), // Page 0 : Notre journal
+      StatsScreen(),   // Page 1 : L'écran de statistiques
+      SettingsScreen(onSettingsChanged: _refreshData),// Page 2 : L'écran des paramètres
+    ];
+
+    return Scaffold(
+      backgroundColor: Colors.white,
+      appBar: _buildAppBar(),
+    body: IndexedStack(
+        index: _selectedIndex,
+        children: pages,
+      ),
+       bottomNavigationBar: BottomNavigationBar(
+        // La liste des boutons de la barre
+        items: const <BottomNavigationBarItem>[
+          BottomNavigationBarItem(
+            icon: Icon(Icons.menu_book_outlined),
+            activeIcon: Icon(Icons.menu_book),
+            label: 'Journal',
+          ),
+          BottomNavigationBarItem(
+            icon: Icon(Icons.bar_chart_outlined),
+            activeIcon: Icon(Icons.bar_chart),
+            label: 'Progrès',
+          ),
+          BottomNavigationBarItem(
+            icon: Icon(Icons.settings_outlined),
+            activeIcon: Icon(Icons.settings),
+            label: 'Paramètres',
+          ),
+        ],
+        currentIndex: _selectedIndex, // L'onglet actuellement actif
+        selectedItemColor: Theme.of(context).colorScheme.primary, // Couleur de l'item actif
+        unselectedItemColor: Colors.grey,
+        showUnselectedLabels: false,
+        // La fonction à appeler quand on clique sur un onglet
+        onTap: (index) {
+          setState(() {
+            _selectedIndex = index;
+          });
+        },
+      ),
+      floatingActionButton: _selectedIndex == 0
+          ? FloatingActionButton(
+              onPressed: _showMealSelection,
+              child: const Icon(Icons.add),
+            )
+          : null,
     );
+}
+
+Future<void> _showEditQuantityDialog(FoodItem item) async {
+  final quantityController = TextEditingController(text: (item.quantity ?? 100).toStringAsFixed(0));
+  
+  // On affiche une popup similaire à celle que nous connaissons
+  final newQuantity = await showDialog<double>(
+    context: context,
+    builder: (context) => AlertDialog(
+      title: Text('Modifier la quantité de "${item.name}"'),
+      content: TextField(
+        controller: quantityController,
+        keyboardType: const TextInputType.numberWithOptions(decimal: true),
+        decoration: const InputDecoration(labelText: 'Nouvelle quantité (g)'),
+        autofocus: true,
+      ),
+      actions: [
+        TextButton(child: const Text('Annuler'), onPressed: () => Navigator.pop(context)),
+        ElevatedButton(
+          child: const Text('Valider'),
+          onPressed: () {
+            final double? parsedQuantity = double.tryParse(quantityController.text);
+            if (parsedQuantity != null && parsedQuantity > 0) {
+              Navigator.pop(context, parsedQuantity);
+            }
+          },
+        ),
+      ],
+    ),
+  );
+
+  // Si l'utilisateur a validé une nouvelle quantité, on met à jour la BDD et l'interface
+  if (newQuantity != null && newQuantity != item.quantity) {
+    await _controller.updateFoodLogItemQuantity(item.id!, newQuantity);
+    _refreshData(); // On rafraîchit tout pour mettre à jour les totaux
+  }
 }
 
 Widget _buildMealList(List<FoodItem> mealItems) {
   if (mealItems.isEmpty) {
+    // L'état vide ne change pas
     return const EmptyStateWidget(
-        imagePath: 'assets/images/undraw_healthy-habit_2ata.svg', // Remplacez par le nom de votre fichier
-        title: 'Ce repas est encore vide',
-        subtitle: 'Appuyez sur le bouton "+" pour ajouter votre premier aliment.',
-      );
-  }
-  return ListView.builder(
-    padding: EdgeInsets.zero, // Enlève le padding par défaut du ListView
-    itemCount: mealItems.length,
-    itemBuilder: (context, index) {
-      final item = mealItems[index];
-      // On retourne le même ListTile que vous aviez avant
-      return ListTile(
-        title: Text(item.name ?? 'Aliment sans nom'),
-        subtitle: Text('${item.quantity}g'),
-        trailing: Text('${item.totalCalories.toStringAsFixed(0)} kcal'),
-      );
-    },
-  );
-}
-
-Widget _buildMacroIndicator({
-  required double radius,
-  required IconData iconData,
-  required String label,
-  required double value,
-  required double max,
-  required Color color,
-}) {
-  return CircularPercentIndicator(
-    radius: radius,
-    lineWidth: 9.0, // On peut se permettre une ligne un peu plus épaisse
-    percent: (value / max).clamp(0, 1),
-    backgroundColor: color.withAlpha(50), // Fond plus subtil
-    progressColor: color,
-    circularStrokeCap: CircularStrokeCap.round,
-    center: Column(
-      mainAxisAlignment: MainAxisAlignment.center,
-      children: [
-        Icon(iconData, color: color, size: radius * 0.45), // Taille proportionnelle au rayon
-        
-        const SizedBox(height: 4),
-
-        Text(
-          '${value.toStringAsFixed(0)} g',
-          style: TextStyle(
-            color: Colors.black87,
-            fontSize: radius * 0.28, // Légèrement plus grand
-            fontWeight: FontWeight.w600, // Semi-gras pour la clarté
-          ),
-        ),
-        Text(
-          '/ ${max.toStringAsFixed(0)} g', // On sépare la cible pour un style différent
-          style: TextStyle(
-            color: Colors.grey[600],
-            fontSize: radius * 0.18, // Plus petit
-          ),
-          ),
-        ],
-      ),
-
-      animation: true,
-      animateFromLastPercent: true,
-      animationDuration: 800, // Un peu plus rapide pour une sensation de réactivité
-      curve: Curves.easeOut,
+      imagePath: 'assets/images/undraw_healthy-habit_2ata.svg',
+      title: 'Ce repas est encore vide',
+      subtitle: 'Appuyez sur le bouton "+" pour ajouter votre premier aliment.',
     );
   }
+
+  // ON RETOURNE UNE COLUMN POUR POUVOIR AJOUTER UN BOUTON PLUS TARD
+  return Column(
+    children: [
+      // La liste doit être dans un Expanded pour prendre la place disponible
+      Expanded(
+        child: ListView.builder(
+          padding: const EdgeInsets.symmetric(horizontal: 8.0),
+          itemCount: mealItems.length,
+          itemBuilder: (context, index) {
+            final item = mealItems[index];
+            return Dismissible(
+              key: ValueKey(item.id),
+              onDismissed: (direction) { // On appelle le controller pour supprimer l'item de la base de données
+          _controller.deleteFoodLogItem(item.id!);
+          
+          // On met à jour l'interface IMMÉDIATEMENT pour une meilleure réactivité
+          // sans attendre le retour de la base de données.
+          setState(() {
+            foodItems.remove(item);
+          });
+
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('"${item.name}" supprimé.')),
+          );},
+              background: Container(color: Colors.red,
+          alignment: Alignment.centerRight,
+          padding: const EdgeInsets.only(right: 20.0),
+          child: const Icon(Icons.delete_outline, color: Colors.white),),
+              child: InkWell(
+                onTap: () => _showEditQuantityDialog(item),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 12.0, horizontal: 8.0),
+                  child: Row(
+                    children: [
+                      // Colonne pour le nom et les macros
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              item.name ?? 'Aliment sans nom',
+                              style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                            const SizedBox(height: 4),
+                            // NOUVEAU : Affichage des macros
+                            Text(
+                              '${item.quantity != null ? item.quantity!.toStringAsFixed(0) : 'N/A'} g  •  G : ${item.totalCarbs.toStringAsFixed(0)} g P : ${item.totalProtein.toStringAsFixed(0)} g L : ${item.totalFat.toStringAsFixed(0)} g',
+                              style: Theme.of(context).textTheme.bodySmall,
+                            ),
+                          ],
+                        ),
+                      ),
+                      // Calories à la fin
+                      Text(
+                        '${item.totalCalories.toStringAsFixed(0)} kcal',
+                        style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                          fontWeight: FontWeight.bold,
+                          color: Theme.of(context).colorScheme.primary,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            );
+          },
+        ),
+      ),
+      Padding(
+        padding: const EdgeInsets.all(16.0),
+        child: SecondaryButton( // On utilise notre bouton secondaire
+          text: 'Ajouter un aliment',
+          icon: Icons.add,
+          onPressed: () {
+            // On identifie le repas actuellement sélectionné dans le TabController
+            final currentMealType = MealType.values[_tabController.index];
+            Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (context) => AddFoodScreen(mealType: currentMealType),
+              ),
+            ).then((_) => _refreshData());
+          },
+        ),
+      ),
+    ],
+  );
+}
 }

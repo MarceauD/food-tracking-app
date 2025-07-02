@@ -28,7 +28,7 @@ class EmptyStateWidget extends StatelessWidget {
               SvgPicture.asset(
                 imagePath,
                 // On peut aussi réduire légèrement la hauteur de l'image
-                height: 100, 
+                height: 80, 
               ),
               const SizedBox(height: 24),
               Text(

@@ -1,13 +1,16 @@
 // lib/controllers/add_food_controller.dart
+import 'dart:async';
 import 'package:openfoodfacts/openfoodfacts.dart';
 import '../helpers/database_helper.dart';
 import '../models/food_item.dart';
+import '../models/portion.dart';
 
 enum ProductResultStatus {
-  success,          // Produit trouvé et valide
-  notFound,         // Le code-barres n'existe pas dans la BDD
-  incompleteData,   // Produit trouvé mais sans données nutritionnelles
-  networkError,     // Problème de connexion
+  success,
+  notFound,
+  incompleteData,
+  networkError,
+  timeoutError,
 }
 
 class ProductFetchResult {
@@ -18,9 +21,16 @@ class ProductFetchResult {
 }
 
 class AddFoodController {
+  final Map<String, List<Product>> _searchCache = {};
+
+  
   // Ajoute un aliment au journal du jour
   Future<void> submitFood(FoodItem item) async {
     await DatabaseHelper.instance.createFoodLog(item);
+  }
+
+  Future<List<Portion>> getPortionsForFood(String foodName) async {
+    return await DatabaseHelper.instance.getPortionsForFood(foodName);
   }
 
   // Ajoute un aliment aux favoris et retourne si l'opération a réussi
@@ -34,12 +44,17 @@ class AddFoodController {
       return []; // Retourne une liste vide
     }
 
+    if (_searchCache.containsKey(query)) {
+      return _searchCache[query]!;
+    }
+
     // On configure les paramètres de la recherche textuelle
     final ProductSearchQueryConfiguration configuration =
         ProductSearchQueryConfiguration(
       parametersList: <Parameter>[
         // On cherche les termes fournis par l'utilisateur
         SearchTerms(terms: [query]),
+        SortBy(option: SortOption.POPULARITY), 
       ],
       language: OpenFoodFactsLanguage.FRENCH,
       fields: [ProductField.ALL], // On demande tous les champs pour avoir les détails
@@ -54,7 +69,35 @@ class AddFoodController {
       );
       
       // On retourne la liste des produits trouvés, ou une liste vide si aucun résultat
-      return result.products ?? [];
+      final products =  result.products ?? [];
+
+      products.sort((a, b) {
+        final nameA = a.productName?.toLowerCase() ?? '';
+        final nameB = b.productName?.toLowerCase() ?? '';
+        final queryLower = query.toLowerCase();
+
+        // Règle 1 : Priorité absolue à ceux qui commencent par la recherche
+        final aStartsWith = nameA.startsWith(queryLower);
+        final bStartsWith = nameB.startsWith(queryLower);
+        if (aStartsWith && !bStartsWith) return -1; // a remonte
+        if (!aStartsWith && bStartsWith) return 1;  // b remonte
+
+        // Règle 2 : Pénaliser les "saveurs" et "goûts"
+        final aIsFlavor = nameA.contains('goût ') || nameA.contains('saveur ');
+        final bIsFlavor = nameB.contains('goût ') || nameB.contains('saveur ');
+        if (!aIsFlavor && bIsFlavor) return -1; // a (qui n'est pas une saveur) remonte
+        if (aIsFlavor && !bIsFlavor) return 1;  // b (qui n'est pas une saveur) remonte
+
+        // Règle 3 : Priorité aux noms plus courts
+        if (nameA.length < nameB.length) return -1;
+        if (nameB.length < nameA.length) return 1;
+
+        // Si tout est égal, on ne change rien
+        return 0;
+      });
+
+      _searchCache[query] = products;
+      return products;
 
     } catch (e) {
       print("Erreur pendant la recherche de produits : $e");
@@ -62,7 +105,7 @@ class AddFoodController {
     }
   }
 
-
+  
   // Récupère les données d'un produit via son code-barres
   Future<ProductFetchResult> fetchProductFromBarcode(String barcode) async {
     final config = ProductQueryConfiguration(
@@ -99,6 +142,10 @@ class AddFoodController {
       );
       
       return ProductFetchResult(status: ProductResultStatus.success, foodItem: foodItem);
+
+    } on TimeoutException { // <-- ON ATTRAPE SPÉCIFIQUEMENT L'ERREUR DE TIMEOUT
+      print("Erreur : Timeout de la requête API après 10 secondes.");
+      return ProductFetchResult(status: ProductResultStatus.timeoutError);
 
     } catch (e) {
       // Cas 4 : Une erreur réseau ou autre s'est produite

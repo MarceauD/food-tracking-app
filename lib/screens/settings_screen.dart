@@ -2,10 +2,13 @@ import 'package:flutter/material.dart';
 import 'package:percent_indicator/circular_percent_indicator.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../controllers/settings_controller.dart';
-
+import '../widgets/common/primary_button.dart';
 
 class SettingsScreen extends StatefulWidget {
-  const SettingsScreen({super.key});
+
+  final VoidCallback onSettingsChanged;
+
+  const SettingsScreen({super.key,required this.onSettingsChanged,});
 
   @override
   State<SettingsScreen> createState() => _SettingsScreenState();
@@ -20,7 +23,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   final _controller = SettingsController();
 
-  bool _autoResetEnabled = true;
   bool _isLoading = true;
 
 
@@ -38,16 +40,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       _carbsController.text = (settings['goalCarbs'] as double).toString();
       _proteinController.text = (settings['goalProtein'] as double).toString();
       _fatController.text = (settings['goalFat'] as double).toString();
-      _autoResetEnabled = settings['autoResetEnabled'] as bool;
       _isLoading = false;
-    });
-  }
-
-  Future<void> _saveAutoResetSetting(bool value) async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setBool('autoResetEnabled', value);
-    setState(() {
-      _autoResetEnabled = value;
     });
   }
 
@@ -59,48 +52,68 @@ class _SettingsScreenState extends State<SettingsScreen> {
         'protein': double.parse(_proteinController.text),
         'fat': double.parse(_fatController.text),
       };
+
       await _controller.saveGoals(goals);
+
       if (!mounted) return;
+      
+      widget.onSettingsChanged();
+
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Objectifs enregistrés')),
       );
-      Navigator.pop(context, true); // On signale que les données ont changé
+      
+
     }
   }
 
   @override
   Widget build(BuildContext context) {
+    // L'AppBar est gérée par HomeScreen, nous construisons uniquement le corps.
     return Scaffold(
-      appBar: AppBar(title: const Text('Objectifs nutritionnels')),
       body: _isLoading
-      ? Center(child: CircularPercentIndicator(radius: 40))
-      : Padding(
-        padding: const EdgeInsets.all(16),
-        child: Form(
-          key: _formKey,
-          child: ListView(
-            children: [
-              _buildTextField(_caloriesController, 'Calories (kcal)'),
-              _buildTextField(_carbsController, 'Glucides (g)'),
-              _buildTextField(_proteinController, 'Protéines (g)'),
-              _buildTextField(_fatController, 'Lipides (g)'),
-              const SizedBox(height: 24),
-              ElevatedButton(
-                onPressed: _saveGoals,
-                child: const Text('Enregistrer les objectifs'),
-              ),
-              const Divider(height: 40),
+          ? const Center(child: CircularProgressIndicator())
+          // On utilise un ListView pour que l'écran soit scrollable sur les petits téléphones
+          : ListView(
+              padding: const EdgeInsets.all(16.0),
+              children: [
+                // --- CARTE 1 : LES OBJECTIFS ---
+                Card(
+                  child: Padding(
+                    padding: const EdgeInsets.all(16.0),
+                    child: Form(
+                      key: _formKey,
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          // On utilise le style de titre du thème
+                          Text(
+                            'Mes Objectifs Nutritionnels',
+                            style: Theme.of(context).textTheme.titleLarge,
+                          ),
+                          const SizedBox(height: 16),
+                          _buildTextField(_caloriesController, 'Calories (kcal)'),
+                          const SizedBox(height: 12),
+                          _buildTextField(_carbsController, 'Glucides (g)'),
+                          const SizedBox(height: 12),
+                          _buildTextField(_proteinController, 'Protéines (g)'),
+                          const SizedBox(height: 12),
+                          _buildTextField(_fatController, 'Lipides (g)'),
+                          const SizedBox(height: 24),
+                          // On utilise notre bouton personnalisé
+                          PrimaryButton(
+                            text: 'Enregistrer les modifications',
+                            onPressed: _saveGoals,
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
 
-              SwitchListTile(
-              title: const Text('Réinitialisation journalière'),
-              subtitle: const Text('Vider le journal automatiquement chaque jour à minuit.'),
-              value: _autoResetEnabled,
-              onChanged: _saveAutoResetSetting,
+                const SizedBox(height: 24),
+              ],
             ),
-            ],
-          ),
-        ),
-      ),
     );
   }
 

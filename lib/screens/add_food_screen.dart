@@ -1,11 +1,13 @@
 import 'package:flutter/material.dart';
 import '../models/food_item.dart';
+import '../models/portion.dart';
 import '../helpers/database_helper.dart';
 import 'barcode_scanner_screen.dart';
 import '../controllers/add_food_controller.dart';
 import 'dart:async'; // Pour gérer le délai de recherche
 import 'package:openfoodfacts/openfoodfacts.dart'; // Pour utiliser le type Product
-
+import '../widgets/common/secondary_button.dart';
+import '../widgets/common/primary_button.dart';
 
 class AddFoodScreen extends StatefulWidget {
 
@@ -24,6 +26,10 @@ class _AddFoodScreenState extends State<AddFoodScreen> {
 
   // --- NOUVELLES VARIABLES D'ÉTAT POUR LA RECHERCHE ---
   final _searchController = TextEditingController();
+  bool _useGrams = true; // Par défaut, on saisit en grammes
+  List<Portion> _availablePortions = [];
+  Portion? _selectedPortion;
+  final _portionQuantityController = TextEditingController(text: '1');
   List<Product> _searchResults = [];
   bool _isSearching = false; // Pour afficher un indicateur de chargement
   Timer? _debounce; // Pour ne pas lancer une recherche à chaque lettre tapée
@@ -64,7 +70,6 @@ class _AddFoodScreenState extends State<AddFoodScreen> {
     _carbsController.dispose();
     _fatController.dispose();
     _quantityController.dispose();
-
     _searchController.removeListener(_onSearchChanged);
     _searchController.dispose();
     _debounce?.cancel();
@@ -94,15 +99,43 @@ class _AddFoodScreenState extends State<AddFoodScreen> {
     });
   }
 
-  void _onProductSelected(Product product) {
+  Future<void> _onProductSelected(Product product) async {
     // On utilise la même logique que pour le scan pour pré-remplir les champs
     _populateFieldsFromProduct(product);
+
+    List<Portion> portions = [];
+
+    final String? servingSizeFromApi = product.servingSize;
+    if (servingSizeFromApi != null && servingSizeFromApi.isNotEmpty) {
+      // On essaie d'extraire le poids en grammes de la chaîne de texte (ex: "50 g")
+      final RegExp regex = RegExp(r'(\d+(\.\d+)?)');
+      final Match? match = regex.firstMatch(servingSizeFromApi);
+      if (match != null) {
+        final double? weight = double.tryParse(match.group(1)!);
+        if (weight != null) {
+          print('ℹ️ Portion trouvée via API : $servingSizeFromApi');
+          portions.add(Portion(name: '1 portion ($servingSizeFromApi)', weightInGrams: weight));
+        }
+      }
+    }
+
+    if (portions.isEmpty) {
+      print('ℹ️ Aucune portion API, recherche dans la base de données locale...');
+      portions = await _controller.getPortionsForFood(product.productName ?? '');
+    }
+
     // On vide la recherche pour cacher la liste des résultats
     setState(() {
+      _availablePortions = portions;
+      if (portions.isNotEmpty) {
+        _selectedPortion = portions.first;
+        _useGrams = false; // On passe en mode portion
+      } else {
+        _useGrams = true; // On reste en mode grammes
+      }
       _searchController.clear();
       _searchResults = [];
     });
-    // On enlève le focus de la barre de recherche pour faire disparaître le clavier
     FocusScope.of(context).unfocus();
   }
 
@@ -144,6 +177,16 @@ class _AddFoodScreenState extends State<AddFoodScreen> {
 
   void _submitForm() async {    
      if (_formKey.currentState!.validate()) {
+      double finalQuantity;
+      // On calcule la quantité finale en grammes
+      if (_useGrams) {
+        finalQuantity = double.parse(_quantityController.text);
+      } else {
+        final portionCount = double.tryParse(_portionQuantityController.text) ?? 1.0;
+        final portionWeight = _selectedPortion?.weightInGrams ?? 0.0;
+        finalQuantity = portionCount * portionWeight; 
+      }
+
       final item = FoodItem(
         name: _nameController.text.isEmpty ? 'Aliment' : _nameController.text,
         mealType: widget.mealType,
@@ -151,7 +194,7 @@ class _AddFoodScreenState extends State<AddFoodScreen> {
         proteinPer100g: double.parse(_proteinController.text),
         carbsPer100g: double.parse(_carbsController.text),
         fatPer100g: double.parse(_fatController.text),
-        quantity: double.parse(_quantityController.text),
+        quantity: finalQuantity,
         date: DateTime.now(),
       );
 
@@ -162,6 +205,58 @@ class _AddFoodScreenState extends State<AddFoodScreen> {
       }
       
   }
+
+  Widget _buildQuantityInput() {
+  return Column(
+    children: [
+
+      const SizedBox(height: 24),
+      // Sélecteur pour choisir entre Grammes et Portions
+      ToggleButtons(
+        isSelected: [_useGrams, !_useGrams],
+        onPressed: (index) {
+          // On ne peut pas désactiver les portions s'il n'y en a pas de disponible
+          if (index == 1 && _availablePortions.isEmpty) return;
+          setState(() {
+            _useGrams = index == 0;
+          });
+        },
+        borderRadius: BorderRadius.circular(8.0),
+        children: const [
+          Padding(padding: EdgeInsets.symmetric(horizontal: 16), child: Text('Grammes')),
+          Padding(padding: EdgeInsets.symmetric(horizontal: 16), child: Text('Portions')),
+        ],
+      ),
+      const SizedBox(height: 16),
+
+      // On affiche le champ de saisie correspondant au mode choisi
+      _useGrams
+          ? _buildTextField(label: 'Quantité (g)', controller: _quantityController, isNumeric: true)
+          : Row(
+              children: [
+                Expanded(
+                  flex: 2,
+                  child: TextFormField(
+                    controller: _portionQuantityController,
+                    keyboardType: TextInputType.number,
+                    decoration: const InputDecoration(labelText: 'Nombre'),
+                  ),
+                ),
+                const SizedBox(width: 16),
+                Expanded(
+                  flex: 3,
+                  child: DropdownButtonFormField<Portion>(
+                    value: _selectedPortion,
+                    items: _availablePortions.map((p) => DropdownMenuItem(value: p, child: Text(p.name))).toList(),
+                    onChanged: (portion) => setState(() => _selectedPortion = portion),
+                    decoration: const InputDecoration(labelText: 'Portion'),
+                  ),
+                ),
+              ],
+            ),
+    ],
+  );
+}
 
   Widget _buildTextField(
     {required String label,
@@ -209,9 +304,9 @@ Widget build(BuildContext context) {
       // On place le bouton de scan ici pour un accès facile et permanent
       actions: [
         IconButton(
-          icon: const Icon(Icons.barcode_reader),
+          icon: const Icon(Icons.qr_code_scanner),
           tooltip: 'Scanner un code-barres',
-          onPressed: _scanBarcode, // Assurez-vous d'avoir cette méthode qui navigue
+          onPressed: _scanBarcode, 
         ),
       ],
     ),
@@ -258,8 +353,38 @@ Widget _buildSearchResultsList() {
     itemCount: _searchResults.length,
     itemBuilder: (context, index) {
       final product = _searchResults[index];
+      // On récupère l'URL de l'image miniature du produit
+      final imageUrl = product.imageFrontSmallUrl;
+
       return ListTile(
-        leading: const Icon(Icons.search),
+        // --- LA MODIFICATION EST ICI, DANS LE 'leading' ---
+        leading: SizedBox(
+          width: 56, // On donne une taille fixe à l'image
+          height: 56,
+          child: ClipRRect( // Pour avoir de jolis coins arrondis
+            borderRadius: BorderRadius.circular(8.0),
+            child: (imageUrl != null && imageUrl.isNotEmpty)
+                // Si l'URL de l'image existe, on l'affiche
+                ? Image.network(
+                    imageUrl,
+                    fit: BoxFit.cover, // Pour que l'image remplisse bien le carré
+                    // Affiche un indicateur de chargement pendant que l'image télécharge
+                    loadingBuilder: (context, child, loadingProgress) {
+                      if (loadingProgress == null) return child;
+                      return const Center(child: CircularProgressIndicator(strokeWidth: 2.0));
+                    },
+                    // Affiche une icône d'erreur si l'image ne peut être chargée
+                    errorBuilder: (context, error, stackTrace) {
+                      return const Icon(Icons.image_not_supported_outlined, color: Colors.grey);
+                    },
+                  )
+                // Sinon, on affiche une icône par défaut
+                : Container(
+                    color: Colors.grey[200],
+                    child: const Icon(Icons.fastfood_outlined, color: Colors.grey),
+                  ),
+          ),
+        ),
         title: Text(product.productName ?? 'Produit sans nom'),
         subtitle: Text(product.brands ?? 'Marque inconnue'),
         onTap: () => _onProductSelected(product),
@@ -268,7 +393,6 @@ Widget _buildSearchResultsList() {
   );
 }
 
-// NOUVELLE MÉTHODE qui construit le formulaire de saisie manuelle
 Widget _buildManualEntryForm() {
   // On reprend le code de votre ancien 'body' ici
   return Padding(
@@ -289,28 +413,30 @@ Widget _buildManualEntryForm() {
           _buildTextField(label: 'Protéines / 100g', controller: _proteinController, isNumeric: true),
           _buildTextField(label: 'Glucides / 100g', controller: _carbsController, isNumeric: true),
           _buildTextField(label: 'Lipides / 100g', controller: _fatController, isNumeric: true),
-          _buildTextField(label: 'Quantité consommée (g)', controller: _quantityController, isNumeric: true),
+          _buildQuantityInput(),
           const SizedBox(height: 20),
-          ElevatedButton(
+          PrimaryButton(
+            text: 'Ajouter au journal',
             onPressed: _submitForm,
-            child: const Text('Ajouter au journal'),
           ),
-          ElevatedButton.icon(
-            onPressed: () async {
-              final item = FoodItem(
-                name: _nameController.text.isEmpty ? 'Aliment' : _nameController.text,
-                mealType: widget.mealType,
-                caloriesPer100g: double.parse(_caloriesController.text),
-                proteinPer100g: double.parse(_proteinController.text),
-                carbsPer100g: double.parse(_carbsController.text),
-                fatPer100g: double.parse(_fatController.text),
-                quantity: double.parse(_quantityController.text),
-                date: DateTime.now(),
-              );
-              await _addToFavorites(item);
+          SecondaryButton(
+            text: 'Ajouter aux favoris',
+            icon: Icons.star_border_outlined,
+            onPressed: () {
+              if (_formKey.currentState!.validate()) {
+                final item = FoodItem(
+                  name: _nameController.text.isEmpty ? 'Aliment' : _nameController.text,
+                  mealType: widget.mealType,
+                  caloriesPer100g: double.parse(_caloriesController.text),
+                  proteinPer100g: double.parse(_proteinController.text),
+                  carbsPer100g: double.parse(_carbsController.text),
+                  fatPer100g: double.parse(_fatController.text),
+                  quantity: 100,
+                  date: DateTime.now(),
+                );
+                _addToFavorites(item);
+              }
             },
-            icon: const Icon(Icons.star_border),
-            label: const Text('Ajouter aux favoris'),
           ),
         ],
       ),
@@ -319,3 +445,5 @@ Widget _buildManualEntryForm() {
 }
 
 }
+
+

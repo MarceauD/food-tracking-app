@@ -3,11 +3,55 @@
 import 'package:flutter/material.dart';
 import '../../models/food_item.dart';
 import '../../models/saved_meals.dart';
-
-import 'package:flutter/material.dart';
-import '../../models/food_item.dart';
-import '../../models/saved_meals.dart';
 import '../common/empty_state_widget.dart';
+
+class _QuickAddButton extends StatelessWidget {
+  final String label;
+  final IconData icon;
+  final Color backgroundColor;
+  final Color foregroundColor;
+  final VoidCallback onTap;
+  final VoidCallback? onLongPress;
+
+  const _QuickAddButton({
+    required this.label,
+    required this.icon,
+    required this.backgroundColor,
+    required this.foregroundColor,
+    required this.onTap,
+    this.onLongPress,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      onTap: onTap,
+      onLongPress: onLongPress,
+      borderRadius: BorderRadius.circular(20.0), // Pour l'effet d'ondulation
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12.0, vertical: 8.0),
+        decoration: BoxDecoration(
+          color: backgroundColor,
+          borderRadius: BorderRadius.circular(20.0),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, size: 16, color: foregroundColor),
+            const SizedBox(width: 6),
+            Text(
+              label,
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                color: foregroundColor,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
 
 class QuickAddCard extends StatefulWidget {
   // Les paramètres reçus ne changent pas
@@ -58,10 +102,6 @@ class _QuickAddCardState extends State<QuickAddCard> with TickerProviderStateMix
 
   @override
   Widget build(BuildContext context) {
-    if (widget.favoriteFoods.isEmpty && widget.savedMeals.isEmpty) {
-      return const SizedBox.shrink();
-    }
-
     return Card(
       elevation: 2.0,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16.0)),
@@ -92,8 +132,8 @@ class _QuickAddCardState extends State<QuickAddCard> with TickerProviderStateMix
               labelColor: Theme.of(context).colorScheme.primary,
               unselectedLabelColor: Colors.grey,
               tabs: const [
-                Tab(icon: Icon(Icons.star), text: 'Aliments'),
-                Tab(icon: Icon(Icons.restaurant_menu), text: 'Repas'),
+                Tab(icon: Icon(Icons.star_outline), text: 'Aliments'),
+                Tab(icon: Icon(Icons.restaurant_menu_outlined), text: 'Repas'),
               ],
             ),
             if (_isExpanded) // On utilise la même condition ici pour la performance
@@ -121,19 +161,20 @@ class _QuickAddCardState extends State<QuickAddCard> with TickerProviderStateMix
         subtitle: 'Sauvegardez vos aliments fréquents ici pour les ajouter en un clin d\'œil.',
       );
     }
+    
     return SingleChildScrollView(
       padding: const EdgeInsets.all(16),
       child: Wrap(
         spacing: 8,
         runSpacing: 8,
         children: items.map((food) {
-          return GestureDetector(
+          return _QuickAddButton(
+            label: food.name ?? 'Sans nom',
+            icon: Icons.star_outline,
+            backgroundColor: Colors.amber.shade100,
+            foregroundColor: Colors.amber.shade900,
             onTap: () => widget.onFavoriteTap(food),
             onLongPress: () => widget.onFavoriteLongPress(food),
-            child: Chip(
-              label: Text(food.name ?? 'Sans nom'),
-              backgroundColor: Colors.blueGrey[50],
-            ),
           );
         }).toList(),
       ),
@@ -154,17 +195,13 @@ class _QuickAddCardState extends State<QuickAddCard> with TickerProviderStateMix
         spacing: 8,
         runSpacing: 8,
         children: meals.map((meal) {
-          return GestureDetector(
+          return _QuickAddButton(
+            label: meal.name,
+            icon: Icons.bookmark_outline,
+            backgroundColor: Colors.green.shade100,
+            foregroundColor: Colors.green.shade900,
+            onTap: () => widget.onSavedMealTap(meal),
             onLongPress: () => widget.onSavedMealLongPress(meal),
-            child: ElevatedButton.icon(
-              icon: const Icon(Icons.bookmark, size: 16),
-              label: Text(meal.name),
-              onPressed: () => widget.onSavedMealTap(meal),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.green[50],
-                foregroundColor: Colors.green[800],
-              ),
-            ),
           );
         }).toList(),
       ),
