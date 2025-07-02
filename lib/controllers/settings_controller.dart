@@ -9,7 +9,6 @@ class SettingsController {
       'goalCarbs': prefs.getDouble('goalCarbs') ?? 150,
       'goalProtein': prefs.getDouble('goalProtein') ?? 160,
       'goalFat': prefs.getDouble('goalFat') ?? 70,
-      'autoResetEnabled': prefs.getBool('autoResetEnabled') ?? true,
     };
   }
 
@@ -22,9 +21,4 @@ class SettingsController {
     await prefs.setDouble('goalFat', goals['fat']!);
   }
 
-  // Sauvegarde le paramètre de réinitialisation auto
-  Future<void> saveAutoResetSetting(bool value) async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setBool('autoResetEnabled', value);
-  }
 }

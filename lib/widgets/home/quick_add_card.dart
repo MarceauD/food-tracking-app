@@ -60,7 +60,9 @@ class QuickAddCard extends StatefulWidget {
   final Function(FoodItem) onFavoriteTap;
   final Function(SavedMeal) onSavedMealTap;
   final Function(FoodItem) onFavoriteLongPress;
-  final Function(SavedMeal) onSavedMealLongPress; // <-- NOUVEAU CALLBACK
+  final Function(SavedMeal) onSavedMealLongPress;
+  
+  final Function(int tabIndex) onClearAllTapped; // <-- NOUVEAU CALLBACK
 
   const QuickAddCard({
     super.key,
@@ -70,6 +72,7 @@ class QuickAddCard extends StatefulWidget {
     required this.onSavedMealTap,
     required this.onFavoriteLongPress,
     required this.onSavedMealLongPress,
+    required this.onClearAllTapped,
   });
 
   @override
@@ -77,28 +80,35 @@ class QuickAddCard extends StatefulWidget {
 }
 
 class _QuickAddCardState extends State<QuickAddCard> with TickerProviderStateMixin {
-  late final TabController _tabController;
-  
+  late TabController _tabController;
+  final TextEditingController _searchController = TextEditingController();
+  String _searchQuery = '';
   // --- NOS VARIABLES D'ÉTAT CORRIGÉES ---
   bool _isExpanded = false;
   // On sauvegarde nous-même l'index de l'onglet actif
   int _activeTabIndex = 0; 
 
-  // Les hauteurs ne changent pas
-  final double _collapsedHeight = 75.0;
-  final double _expandedHeight = 200.0;
-
   @override
   void initState() {
     super.initState();
     _tabController = TabController(length: 2, vsync: this);
+    _searchController.addListener(() {
+      setState(() {
+        _searchQuery = _searchController.text.toLowerCase();
+      });
+    });
   }
 
   @override
   void dispose() {
     _tabController.dispose();
+    _searchController.dispose();
     super.dispose();
   }
+
+  // Les hauteurs ne changent pas
+  final double _collapsedHeight = 75.0;
+  final double _expandedHeight = 200.0;
 
   @override
   Widget build(BuildContext context) {
@@ -112,7 +122,8 @@ class _QuickAddCardState extends State<QuickAddCard> with TickerProviderStateMix
         curve: Curves.easeInOut,
         child: Column(
           children: [
-            TabBar(
+            Row(children: [
+              Expanded(child: TabBar(
               controller: _tabController,
               // --- LA LOGIQUE DE GESTION DE CLIC, DÉFINITIVE ET CORRECTE ---
               onTap: (tappedIndex) {
@@ -136,6 +147,21 @@ class _QuickAddCardState extends State<QuickAddCard> with TickerProviderStateMix
                 Tab(icon: Icon(Icons.restaurant_menu_outlined), text: 'Repas'),
               ],
             ),
+            ),
+
+            IconButton(
+                  icon: const Icon(Icons.delete_sweep_outlined),
+                  color: Colors.grey,
+                  tooltip: 'Vider la liste',
+                  onPressed: () {
+                    // On appelle le callback en lui passant l'index de l'onglet actif
+                    widget.onClearAllTapped(_tabController.index);
+                  },
+                )
+
+            ],
+            ),
+            
             if (_isExpanded) // On utilise la même condition ici pour la performance
               Expanded(
                 child: TabBarView(
@@ -153,58 +179,96 @@ class _QuickAddCardState extends State<QuickAddCard> with TickerProviderStateMix
     );
   }
 
+  
+
   Widget _buildFavoritesView(List<FoodItem> items) {
-    if (items.isEmpty) {
-      return const EmptyStateWidget(
-        imagePath: 'assets/images/undraw_love-it_8pc0.svg', 
-        title: 'Aucun aliment favori',
-        subtitle: 'Sauvegardez vos aliments fréquents ici pour les ajouter en un clin d\'œil.',
-      );
-    }
-    
-    return SingleChildScrollView(
-      padding: const EdgeInsets.all(16),
-      child: Wrap(
-        spacing: 8,
-        runSpacing: 8,
-        children: items.map((food) {
-          return _QuickAddButton(
-            label: food.name ?? 'Sans nom',
-            icon: Icons.star_outline,
-            backgroundColor: Colors.amber.shade100,
-            foregroundColor: Colors.amber.shade900,
-            onTap: () => widget.onFavoriteTap(food),
-            onLongPress: () => widget.onFavoriteLongPress(food),
-          );
-        }).toList(),
+  // On filtre la liste en fonction de la recherche
+  final filteredItems = items.where((item) {
+    return item.name?.toLowerCase().contains(_searchQuery) ?? false;
+  }).toList();
+
+  return Column(
+    children: [
+      _buildSearchView(hintText: 'Rechercher dans les favoris...'), // Notre champ de recherche
+      Expanded(
+        child: filteredItems.isEmpty
+            ? const EmptyStateWidget(
+              imagePath: 'assets/images/undraw_love-it_8pc0.svg', 
+              title: 'Aucun aliment favori',
+              subtitle: 'Sauvegardez vos aliments fréquents ici pour les ajouter en un clin d\'œil.',)
+            : ListView.builder(
+                itemCount: filteredItems.length,
+                itemBuilder: (context, index) {
+                  final food = filteredItems[index];
+                  return ListTile(
+                    leading: const Icon(Icons.star, color: Colors.amber),
+                    title: Text(food.name ?? 'Sans nom'),
+                    onTap: () => widget.onFavoriteTap(food),
+                    onLongPress: () => widget.onFavoriteLongPress(food),
+                  );
+                },
+              ),
       ),
-    );
-  }
+    ],
+  );
+}
+
+
+
+  Widget _buildSearchView({required String hintText}) {
+  return Padding(
+    padding: const EdgeInsets.all(8.0),
+    child: TextField(
+      controller: _searchController,
+      decoration: InputDecoration(
+        hintText: 'Rechercher dans les favoris...',
+        prefixIcon: const Icon(Icons.search),
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12.0),
+          borderSide: BorderSide.none,
+        ),
+        filled: true,
+        fillColor: Colors.grey.withOpacity(0.1),
+      ),
+    ),
+  );
+}
 
   Widget _buildSavedMealsView(List<SavedMeal> meals) {
-    if (meals.isEmpty) {
-      return const EmptyStateWidget(
-        imagePath: 'assets/images/undraw_breakfast_rgx5.svg',
-        title: 'Aucun repas sauvegardé',
-        subtitle: 'Utilisez l\'icône 🔖 dans le journal pour sauvegarder un repas complet et le réutiliser.',
-      );
-    }
-    return SingleChildScrollView(
-      padding: const EdgeInsets.all(16),
-      child: Wrap(
-        spacing: 8,
-        runSpacing: 8,
-        children: meals.map((meal) {
-          return _QuickAddButton(
-            label: meal.name,
-            icon: Icons.bookmark_outline,
-            backgroundColor: Colors.green.shade100,
-            foregroundColor: Colors.green.shade900,
-            onTap: () => widget.onSavedMealTap(meal),
-            onLongPress: () => widget.onSavedMealLongPress(meal),
-          );
-        }).toList(),
+  // On filtre la liste des repas en fonction de la recherche
+  final filteredMeals = meals.where((meal) {
+    return meal.name.toLowerCase().contains(_searchQuery);
+  }).toList();
+
+  return Column(
+    children: [
+      // On réutilise notre méthode de construction pour le champ de recherche
+      _buildSearchView(hintText: 'Rechercher dans les repas...'),
+      
+      Expanded(
+        child: filteredMeals.isEmpty
+            ? const EmptyStateWidget(
+                imagePath: 'assets/images/undraw_breakfast_rgx5.svg',
+                title: 'Aucun résultat trouvé',
+                subtitle: 'Essayez un autre terme de recherche ou sauvegardez de nouveaux repas.',
+              )
+            // On affiche la liste verticale
+            : ListView.builder(
+                padding: EdgeInsets.zero,
+                itemCount: filteredMeals.length,
+                itemBuilder: (context, index) {
+                  final meal = filteredMeals[index];
+                  // On utilise un ListTile pour un affichage propre et cliquable
+                  return ListTile(
+                    leading: const Icon(Icons.bookmark, color: Colors.green),
+                    title: Text(meal.name),
+                    onTap: () => widget.onSavedMealTap(meal),
+                    onLongPress: () => widget.onSavedMealLongPress!(meal),
+                  );
+                },
+              ),
       ),
-    );
-  }
+    ],
+  );
+}
 }

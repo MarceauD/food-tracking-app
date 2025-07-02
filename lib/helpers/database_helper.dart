@@ -192,6 +192,20 @@ class DatabaseHelper {
     return item.copyWith(); // On pourrait retourner avec l'ID mais pas essentiel ici
   }
 
+  // Vide toute la table des favoris
+  Future<void> clearFavorites() async {
+    final db = await instance.database;
+    await db.delete('favorites');
+    print('🗑️ Table des favoris vidée.');
+  }
+
+  // Vide toute la table des repas sauvegardés (et les items associés par cascade)
+  Future<void> clearSavedMeals() async {
+    final db = await instance.database;
+    await db.delete('saved_meals');
+    print('🗑️ Table des repas sauvegardés vidée.');
+  }
+
   Future<List<FoodItem>> getFoodLogForDate(DateTime date) async {
     final db = await instance.database;
 

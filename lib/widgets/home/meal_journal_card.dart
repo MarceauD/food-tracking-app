@@ -19,7 +19,7 @@ class MealJournalCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return SizedBox(
-      height : 400,
+      height : 300,
       child: Card(
       elevation: 2.0,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16.0)),

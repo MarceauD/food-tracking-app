@@ -3,6 +3,8 @@ import 'package:percent_indicator/circular_percent_indicator.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../controllers/settings_controller.dart';
 import '../widgets/common/primary_button.dart';
+import 'package:provider/provider.dart'; // <-- Importer Provider
+import '../providers/theme_provider.dart'; // <-- Importer le provider
 
 class SettingsScreen extends StatefulWidget {
 
@@ -69,6 +71,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   @override
   Widget build(BuildContext context) {
+
+    final themeProvider = Provider.of<ThemeProvider>(context);
+    
     // L'AppBar est gérée par HomeScreen, nous construisons uniquement le corps.
     return Scaffold(
       body: _isLoading
@@ -112,8 +117,28 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 ),
 
                 const SizedBox(height: 24),
-              ],
+
+                Card(
+            child: SwitchListTile(
+              title: Text(
+                'Mode Sombre',
+                style: Theme.of(context).textTheme.titleMedium,
+              ),
+              // La valeur du Switch dépend du thème actuel
+              value: themeProvider.themeMode == ThemeMode.dark,
+              activeColor: Theme.of(context).colorScheme.primary,
+              // Quand l'utilisateur bascule le Switch
+              onChanged: (bool value) {
+                // On utilise context.read pour appeler une méthode du provider
+                // C'est la bonne pratique dans un callback comme onChanged.
+                context.read<ThemeProvider>().setThemeMode(
+                  value ? ThemeMode.dark : ThemeMode.light,
+                );
+              },
             ),
+          ),
+        ],
+      ),
     );
   }
 

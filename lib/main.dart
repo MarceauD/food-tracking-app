@@ -5,6 +5,8 @@ import 'package:intl/date_symbol_data_local.dart';
 import 'package:sqflite/sqflite.dart';
 import 'package:path/path.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:provider/provider.dart';
+import 'providers/theme_provider.dart'; // <-- Importer notre nouvelle classe
 
 Future<void> deleteDb() async {
   final dbPath = await getDatabasesPath();
@@ -21,7 +23,12 @@ void main() async {
   WidgetsFlutterBinding.ensureInitialized(); 
   await initializeDateFormatting('fr_FR', null);
 
-  runApp(const MyApp());
+  runApp(
+    ChangeNotifierProvider(
+      create: (context) => ThemeProvider(),
+      child: const MyApp(),
+    ),
+  );
 }
 
 class MyApp extends StatelessWidget {
@@ -29,8 +36,13 @@ class MyApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+
+    final themeProvider = Provider.of<ThemeProvider>(context);
+
     return MaterialApp(
       title: 'Mon Suivi Nutritionnel',
+      themeMode: themeProvider.themeMode,
+
       theme: ThemeData(
         
         useMaterial3: true,
@@ -44,7 +56,6 @@ class MyApp extends StatelessWidget {
           background: const Color(0xFFF8F9FA), // Le même que le scaffold
         ),
 
-        
         // Un thème personnalisé pour toutes les cartes de l'application
         cardTheme: CardThemeData(
           elevation: 1.5, // Une ombre très subtile pour un effet de flottement
@@ -52,7 +63,7 @@ class MyApp extends StatelessWidget {
           surfaceTintColor: Colors.white, // Très important pour garder les cartes blanches en Material 3
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16.0))
         ),
-        
+            
         textTheme: GoogleFonts.poppinsTextTheme(ThemeData.light().textTheme).copyWith(
           // Style pour les grands titres (ex: "Bonjour !")
           headlineSmall: GoogleFonts.poppins(
@@ -96,6 +107,23 @@ class MyApp extends StatelessWidget {
         ),
 
       ),
+
+      darkTheme: ThemeData(
+        useMaterial3: true,
+        scaffoldBackgroundColor: const Color(0xFF121212), // Un noir très foncé
+        colorScheme: ColorScheme.fromSeed(
+          seedColor: Colors.green,
+          brightness: Brightness.dark, // On spécifie que c'est un thème sombre
+          surface: const Color(0xFF1E1E1E), // Des cartes légèrement plus claires
+        ),
+        // Le thème de texte s'adaptera automatiquement (texte blanc sur fond sombre)
+        textTheme: GoogleFonts.poppinsTextTheme(ThemeData.dark().textTheme),
+        cardTheme: CardThemeData(
+          elevation: 1.0,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16.0)),
+        ),
+        ),
+
       home: const HomeScreen(), // L'écran principal est HomeScreen
     );
   }

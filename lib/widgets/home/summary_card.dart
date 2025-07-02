@@ -106,7 +106,6 @@ class _MacroIndicator extends StatelessWidget {
                     textAlign: TextAlign.center,
                     style: Theme.of(context).textTheme.bodySmall?.copyWith(
                           fontWeight: FontWeight.w600,
-                          color: Colors.black87,
                         ),
                   ),
                 ],
@@ -215,7 +214,7 @@ class SummaryCard extends StatelessWidget {
                   ),
                 ),
               ],
-            )
+            ),
           ],
         ),
       ),

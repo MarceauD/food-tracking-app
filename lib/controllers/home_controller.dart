@@ -23,6 +23,20 @@ class HomeController {
     };
   }
 
+  Future<void> clearAllFavorites() async {
+    await DatabaseHelper.instance.clearFavorites();
+  }
+
+  Future<void> clearAllSavedMeals() async {
+    await DatabaseHelper.instance.clearSavedMeals();
+  }
+
+  Future<bool> addFoodItemToFavorites(FoodItem item) async {
+    // On appelle directement le DatabaseHelper qui contient déjà la logique
+    // pour vérifier les doublons.
+    return await DatabaseHelper.instance.createFavorite(item);
+  }
+
   // Logique de chargement des favoris
   Future<List<FoodItem>> loadFavorites() async {
     return await DatabaseHelper.instance.getFavorites();
