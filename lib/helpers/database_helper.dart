@@ -6,6 +6,7 @@ import '../models/food_item.dart';
 import '../models/saved_meals.dart';
 import '../models/portion.dart';
 import '../models/daily_summary.dart';
+import '../models/user_profile.dart'; // N'oubliez pas l'import
 
 class DatabaseHelper {
   // Singleton pour s'assurer qu'on a une seule instance de la BDD
@@ -25,15 +26,14 @@ class DatabaseHelper {
 
     return await openDatabase(
       path,
-      version: 4, 
+      version: 6, 
       onCreate: _createDB,
       onUpgrade: _upgradeDB, // <-- On ajoute cette ligne
     );
   }
 
   Future<void> _upgradeDB(Database db, int oldVersion, int newVersion) async {
-  // Pour cette mise à jour simple, nous allons supprimer les anciennes tables
-  // et les recréer. ATTENTION : ceci efface toutes les données existantes.
+  
   }
 
   // Création des tables
@@ -110,9 +110,28 @@ class DatabaseHelper {
       total_carbs REAL NOT NULL,
       total_protein REAL NOT NULL,
       total_fat REAL NOT NULL,
-      goal_calories REAL NOT NULL
+      goal_calories REAL NOT NULL,
+      logged_meals TEXT, -- Cette colonne existe déjà
+      -- ON AJOUTE LES NOUVELLES COLONNES
+      breakfast_calories REAL NOT NULL,
+      lunch_calories REAL NOT NULL,
+      dinner_calories REAL NOT NULL,
+      snack_calories REAL NOT NULL
     )
     ''');
+
+    await db.execute('''
+        CREATE TABLE user_profile (
+          id INTEGER PRIMARY KEY,
+          gender TEXT NOT NULL,
+          date_of_birth TEXT NOT NULL,
+          height REAL NOT NULL,
+          weight REAL NOT NULL,
+          activity_level TEXT NOT NULL,
+          objective TEXT NOT NULL DEFAULT 'maintain',
+          name TEXT NOT NULL DEFAULT 'Utilisateur'
+        )
+      ''');
 
     await db.execute('''
    INSERT INTO common_portions (food_keyword, portion_name, weight_in_grams) VALUES
@@ -183,6 +202,31 @@ class DatabaseHelper {
     ''');
   }
 
+  // Sauvegarde ou met à jour le profil de l'utilisateur (il n'y en a qu'un)
+  Future<void> saveOrUpdateUserProfile(UserProfile profile) async {
+    final db = await instance.database;
+    await db.insert(
+      'user_profile',
+      profile.toMap(),
+      conflictAlgorithm: ConflictAlgorithm.replace, // Remplace la ligne existante si l'ID est le même
+    );
+  }
+
+  // Récupère le profil de l'utilisateur
+  Future<UserProfile?> getUserProfile() async {
+    final db = await instance.database;
+    final maps = await db.query(
+      'user_profile',
+      where: 'id = ?',
+      whereArgs: [1], // L'ID du profil est toujours 1
+    );
+
+    if (maps.isNotEmpty) {
+      return UserProfile.fromMap(maps.first);
+    }
+    return null; // Retourne null si aucun profil n'a encore été créé
+  }
+
   // --- Opérations sur le Journal ---
 
   Future<FoodItem> createFoodLog(FoodItem item) async {
@@ -208,11 +252,14 @@ class DatabaseHelper {
 
   Future<List<FoodItem>> getFoodLogForDate(DateTime date) async {
     final db = await instance.database;
+    final dateString = date.toIso8601String().substring(0, 10);
 
     final maps = await db.query(
       'food_log',
-      // Pour matcher tous les items
+      where: 'date LIKE ?', 
+      whereArgs: ['$dateString%'], // On utilise 'LIKE' pour matcher toutes les entrées de ce jour
       orderBy: 'id DESC',
+      // Pour matcher tous les items
     );
 
     if (maps.isNotEmpty) {
@@ -262,6 +309,12 @@ class DatabaseHelper {
       limit: days,
     );
     return maps.map((map) => DailySummary.fromMap(map)).toList();
+  }
+
+  Future<void> clearSummaries() async {
+    final db = await instance.database;
+    await db.delete('daily_summary');
+    print('🗑️ Table des résumés journaliers vidée.');
   }
 
   // --- Opérations sur les Favoris ---

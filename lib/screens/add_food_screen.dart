@@ -8,13 +8,15 @@ import 'dart:async'; // Pour gérer le délai de recherche
 import 'package:openfoodfacts/openfoodfacts.dart'; // Pour utiliser le type Product
 import '../widgets/common/secondary_button.dart';
 import '../widgets/common/primary_button.dart';
+import '../models/meal_type.dart';
 
 class AddFoodScreen extends StatefulWidget {
 
   final FoodItem? initialFoodItem;
   final MealType mealType;
+  final DateTime selectedDate;
 
-  const AddFoodScreen({super.key, required this.mealType, this.initialFoodItem});
+  const AddFoodScreen({super.key, required this.mealType, required this.selectedDate, this.initialFoodItem});
   
   @override
   State<AddFoodScreen> createState() => _AddFoodScreenState();
@@ -30,7 +32,8 @@ class _AddFoodScreenState extends State<AddFoodScreen> {
   List<Portion> _availablePortions = [];
   Portion? _selectedPortion;
   final _portionQuantityController = TextEditingController(text: '1');
-  List<Product> _searchResults = [];
+  List<FoodItem> _usdaResults = [];
+  List<Product> _openFoodFactsResults = [];
   bool _isSearching = false; // Pour afficher un indicateur de chargement
   Timer? _debounce; // Pour ne pas lancer une recherche à chaque lettre tapée
 
@@ -85,18 +88,89 @@ class _AddFoodScreenState extends State<AddFoodScreen> {
     _debounce = Timer(const Duration(milliseconds: 500), () async {
       // Une fois le timer écoulé, on lance la recherche
       if (_searchController.text.length < 3) {
-        setState(() { _searchResults = []; });
+        setState(() { _openFoodFactsResults = []; });
         return;
       }
       setState(() { _isSearching = true; });
-      final results = await _controller.searchProducts(_searchController.text);
+
+      final usdaFuture = _controller.searchGenericFoods(_searchController.text);
+      final openFoodFactsFuture = _controller.searchProducts(_searchController.text);
+
+      final results = await Future.wait([usdaFuture, openFoodFactsFuture]);
+      final usdaResults = results[0] as List<FoodItem>;
+      final openFoodFactsResults = results[1] as List<Product>;
+    
+      final openFoodFactsItems = openFoodFactsResults.map((product) {
+      // On récupère les calories pour vérifier que le produit est valide
+      final calories = product.nutriments?.getValue(Nutrient.energyKCal, PerSize.oneHundredGrams);
+
+      // On retourne un FoodItem complet
+      return FoodItem(
+        // On utilise les données du 'product' de l'API
+        name: product.productName ?? 'Produit inconnu',
+        caloriesPer100g: calories ?? 0.0,
+        proteinPer100g: product.nutriments?.getValue(Nutrient.proteins, PerSize.oneHundredGrams) ?? 0.0,
+        carbsPer100g: product.nutriments?.getValue(Nutrient.carbohydrates, PerSize.oneHundredGrams) ?? 0.0,
+        fatPer100g: product.nutriments?.getValue(Nutrient.fat, PerSize.oneHundredGrams) ?? 0.0,
+        // On met une quantité par défaut, car c'est un modèle
+        quantity: 100.0,
+      );
+    })
+    // On ne garde que les aliments qui ont bien des données caloriques
+    .where((item) => item.caloriesPer100g > 0) 
+    .toList();
+
       if (mounted) {
         setState(() {
-          _searchResults = results;
+          _usdaResults = results[0] as List<FoodItem>;
+          _openFoodFactsResults = _openFoodFactsResults = results[1] as List<Product>;
           _isSearching = false;
         });
       }
     });
+  }
+
+  void _onGenericFoodSelected(FoodItem item) {
+    _populateFields(item);
+    // On cache les résultats de recherche
+    setState(() {
+      _usdaResults = [];
+      _openFoodFactsResults = [];
+      _searchController.clear();
+    });
+    FocusScope.of(context).unfocus();
+  }
+
+  void _onApiProductSelected(Product product) async {
+    // On convertit le Product en FoodItem
+    final foodItem = convertProductToFoodItem(product);
+
+    if (foodItem != null) {
+      _populateFields(foodItem);
+      // On charge les portions possibles pour ce nouvel aliment
+      final portions = await _controller.getPortionsForFood(foodItem.name ?? '');
+      setState(() {
+        _availablePortions = portions;
+        if (portions.isNotEmpty) {
+          _selectedPortion = portions.first;
+          _useGrams = false;
+        } else {
+          _useGrams = true;
+        }
+      });
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Données nutritionnelles manquantes pour ce produit.'))
+      );
+    }
+    
+    // On cache les résultats de recherche
+    setState(() {
+      _usdaResults = [];
+      _openFoodFactsResults = [];
+      _searchController.clear();
+    });
+    FocusScope.of(context).unfocus();
   }
 
   Future<void> _onProductSelected(Product product) async {
@@ -134,7 +208,7 @@ class _AddFoodScreenState extends State<AddFoodScreen> {
         _useGrams = true; // On reste en mode grammes
       }
       _searchController.clear();
-      _searchResults = [];
+      _openFoodFactsResults = [];
     });
     FocusScope.of(context).unfocus();
   }
@@ -195,7 +269,7 @@ class _AddFoodScreenState extends State<AddFoodScreen> {
         carbsPer100g: double.parse(_carbsController.text),
         fatPer100g: double.parse(_fatController.text),
         quantity: finalQuantity,
-        date: DateTime.now(),
+        date: widget.selectedDate,
       );
 
       await DatabaseHelper.instance.createFoodLog(item);
@@ -335,7 +409,7 @@ Widget build(BuildContext context) {
         Expanded(
           child:
               // Si on a des résultats de recherche, on les affiche
-              _searchResults.isNotEmpty
+              _openFoodFactsResults.isNotEmpty
                   ? _buildSearchResultsList()
                   // Sinon, on affiche le formulaire de saisie manuelle
                   : _buildManualEntryForm(),
@@ -349,47 +423,75 @@ Widget build(BuildContext context) {
 
 // NOUVELLE MÉTHODE qui construit la liste des résultats de recherche
 Widget _buildSearchResultsList() {
-  return ListView.builder(
-    itemCount: _searchResults.length,
-    itemBuilder: (context, index) {
-      final product = _searchResults[index];
-      // On récupère l'URL de l'image miniature du produit
-      final imageUrl = product.imageFrontSmallUrl;
+  final totalItemCount = _usdaResults.length + _openFoodFactsResults.length;
 
-      return ListTile(
-        // --- LA MODIFICATION EST ICI, DANS LE 'leading' ---
-        leading: SizedBox(
-          width: 56, // On donne une taille fixe à l'image
-          height: 56,
-          child: ClipRRect( // Pour avoir de jolis coins arrondis
-            borderRadius: BorderRadius.circular(8.0),
-            child: (imageUrl != null && imageUrl.isNotEmpty)
-                // Si l'URL de l'image existe, on l'affiche
-                ? Image.network(
-                    imageUrl,
-                    fit: BoxFit.cover, // Pour que l'image remplisse bien le carré
-                    // Affiche un indicateur de chargement pendant que l'image télécharge
-                    loadingBuilder: (context, child, loadingProgress) {
-                      if (loadingProgress == null) return child;
-                      return const Center(child: CircularProgressIndicator(strokeWidth: 2.0));
-                    },
-                    // Affiche une icône d'erreur si l'image ne peut être chargée
-                    errorBuilder: (context, error, stackTrace) {
-                      return const Icon(Icons.image_not_supported_outlined, color: Colors.grey);
-                    },
-                  )
-                // Sinon, on affiche une icône par défaut
-                : Container(
-                    color: Colors.grey[200],
-                    child: const Icon(Icons.fastfood_outlined, color: Colors.grey),
-                  ),
+  return ListView.builder(
+    itemCount: totalItemCount,
+    itemBuilder: (context, index) {
+      // Si l'index correspond à un résultat de la base locale/USDA
+      if (index < _usdaResults.length) {
+        final item = _usdaResults[index];
+        return ListTile(
+          leading: Container(
+            width: 56, height: 56,
+            decoration: BoxDecoration(color: Colors.green[50], borderRadius: BorderRadius.circular(8)),
+            child: const Icon(Icons.eco_outlined, color: Colors.green),
           ),
-        ),
-        title: Text(product.productName ?? 'Produit sans nom'),
-        subtitle: Text(product.brands ?? 'Marque inconnue'),
-        onTap: () => _onProductSelected(product),
-      );
+          title: Text(item.name ?? 'Aliment générique'),
+          subtitle: Text('${item.caloriesPer100g.toStringAsFixed(0)} kcal pour 100g'),
+          // ON APPELLE DIRECTEMENT LA MÉTHODE QUI GÈRE LES FoodItem
+          onTap: () => _onGenericFoodSelected(item),
+        );
+      } 
+      // Sinon, c'est un résultat de Open Food Facts
+      else {
+        final product = _openFoodFactsResults[index - _usdaResults.length];
+        final imageUrl = product.imageFrontSmallUrl;
+        
+        return ListTile(
+          leading: SizedBox(
+            width: 56, height: 56,
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(8.0),
+              child: (imageUrl != null && imageUrl.isNotEmpty)
+                  ? Image.network(imageUrl, fit: BoxFit.cover, /*... loading & error builders ...*/)
+                  : Container(
+                      color: Colors.grey[200],
+                      child: const Icon(Icons.fastfood_outlined, color: Colors.grey),
+                    ),
+            ),
+          ),
+          title: Text(product.productName ?? 'Produit sans nom'),
+          subtitle: Text(product.brands ?? 'Marque inconnue'),
+          // ON APPELLE LA MÉTHODE QUI GÈRE LES Product DE L'API
+          onTap: () {
+            final foodItem = convertProductToFoodItem(product);
+            if (foodItem != null) {
+              _onGenericFoodSelected(foodItem);
+            } else {
+              // Gérer le cas où le produit est incomplet
+               ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text('Données nutritionnelles manquantes pour ce produit.'))
+              );
+            }
+          },
+        );
+      }
     },
+  );
+}
+
+FoodItem? convertProductToFoodItem(Product product) {
+  final calories = product.nutriments?.getValue(Nutrient.energyKCal, PerSize.oneHundredGrams);
+  if (calories == null) return null;
+
+  return FoodItem(
+    name: product.productName ?? 'Produit inconnu',
+    caloriesPer100g: calories,
+    proteinPer100g: product.nutriments?.getValue(Nutrient.proteins, PerSize.oneHundredGrams) ?? 0.0,
+    carbsPer100g: product.nutriments?.getValue(Nutrient.carbohydrates, PerSize.oneHundredGrams) ?? 0.0,
+    fatPer100g: product.nutriments?.getValue(Nutrient.fat, PerSize.oneHundredGrams) ?? 0.0,
+    quantity: 100.0,
   );
 }
 
@@ -413,7 +515,48 @@ Widget _buildManualEntryForm() {
           _buildTextField(label: 'Protéines / 100g', controller: _proteinController, isNumeric: true),
           _buildTextField(label: 'Glucides / 100g', controller: _carbsController, isNumeric: true),
           _buildTextField(label: 'Lipides / 100g', controller: _fatController, isNumeric: true),
-          _buildQuantityInput(),
+          const SizedBox(height: 24),
+          ToggleButtons(
+            isSelected: [_useGrams, !_useGrams],
+            onPressed: (index) {
+              if (index == 1 && _availablePortions.isEmpty) return;
+              setState(() { _useGrams = index == 0; });
+            },
+            borderRadius: BorderRadius.circular(8.0),
+            children: const [
+              Padding(padding: EdgeInsets.symmetric(horizontal: 16), child: Text('Grammes')),
+              Padding(padding: EdgeInsets.symmetric(horizontal: 16), child: Text('Portions')),
+            ],
+          ),
+          const SizedBox(height: 16),
+          
+          // On affiche le bon champ de saisie de manière conditionnelle
+          if (_useGrams)
+            _buildTextField(label: 'Quantité (g)', controller: _quantityController, isNumeric: true)
+          else
+            Row(
+              children: [
+                Expanded(
+                  flex: 2,
+                  child: TextFormField(
+                    controller: _portionQuantityController,
+                    keyboardType: TextInputType.number,
+                    decoration: const InputDecoration(labelText: 'Nombre'),
+                  ),
+                ),
+                const SizedBox(width: 16),
+                Expanded(
+                  flex: 3,
+                  child: DropdownButtonFormField<Portion>(
+                    value: _selectedPortion,
+                    items: _availablePortions.map((p) => DropdownMenuItem(value: p, child: Text(p.name))).toList(),
+                    onChanged: (portion) => setState(() => _selectedPortion = portion),
+                    decoration: const InputDecoration(labelText: 'Portion'),
+                  ),
+                ),
+              ],
+            ),
+            
           const SizedBox(height: 20),
           PrimaryButton(
             text: 'Ajouter au journal',
@@ -432,7 +575,7 @@ Widget _buildManualEntryForm() {
                   carbsPer100g: double.parse(_carbsController.text),
                   fatPer100g: double.parse(_fatController.text),
                   quantity: 100,
-                  date: DateTime.now(),
+                  date: widget.selectedDate,
                 );
                 _addToFavorites(item);
               }

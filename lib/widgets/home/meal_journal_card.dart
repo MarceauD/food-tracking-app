@@ -1,12 +1,14 @@
 // lib/widgets/home/meal_journal_card.dart
 import 'package:flutter/material.dart';
 import '../../models/food_item.dart';
+import '../../models/meal_type.dart';
 
 class MealJournalCard extends StatelessWidget {
   final TabController tabController;
   final Map<MealType, List<FoodItem>> groupedFoodItems;
   final Widget Function(List<FoodItem> mealItems) buildMealList;
   final Function(MealType mealType, List<FoodItem> items) onSaveMeal;
+  final Function(MealType mealType) onCopyMeal;
 
   const MealJournalCard({
     super.key,
@@ -14,12 +16,13 @@ class MealJournalCard extends StatelessWidget {
     required this.groupedFoodItems,
     required this.buildMealList,
     required this.onSaveMeal,
+    required this.onCopyMeal,
   });
 
   @override
   Widget build(BuildContext context) {
     return SizedBox(
-      height : 300,
+      height : 400,
       child: Card(
       elevation: 2.0,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16.0)),
@@ -37,7 +40,7 @@ class MealJournalCard extends StatelessWidget {
                   unselectedLabelStyle: const TextStyle(fontSize: 12),
                   // On remplace le padding par défaut pour un look plus compact
                   labelPadding: const EdgeInsets.symmetric(horizontal: 4.0), 
-                  tabs: const [
+                  tabs:  [
                     // On ajoute un 'icon' à chaque Tab
                     Tab(icon: Icon(Icons.wb_sunny_outlined), text: 'Petit-déj'),
                     Tab(icon: Icon(Icons.lunch_dining_outlined), text: 'Déjeuner'),
@@ -47,8 +50,17 @@ class MealJournalCard extends StatelessWidget {
                 ),
               ),
               IconButton(
+                  icon: const Icon(Icons.copy_outlined),
+                  tooltip: 'Copier le repas d\'hier',
+                  onPressed: () {
+                    final currentMealType = MealType.values[tabController.index];
+                    onCopyMeal(currentMealType);
+                  },
+                ),
+
+              IconButton(
                 icon: const Icon(Icons.bookmark_add_outlined),
-                tooltip: 'Sauvegarder ce repas',
+                tooltip: 'Sauvegarder ce repas pour le réutiliser plus tard',
                 onPressed: () {
                   final currentMealType = MealType.values[tabController.index];
                   final currentItems = groupedFoodItems[currentMealType]!;
@@ -64,6 +76,9 @@ class MealJournalCard extends StatelessWidget {
             ],
           ),
           const Divider(height: 1),
+
+          _buildTotalsBar(context),
+
           // Ce Expanded ici est correct, car son parent direct est une Column.
           Expanded(
             child: TabBarView(
@@ -81,4 +96,37 @@ class MealJournalCard extends StatelessWidget {
     ),
     );
   }
+
+  Widget _buildTotalsBar(BuildContext context) {
+    double getMealTotal(MealType type) {
+      return groupedFoodItems[type]!.fold(0, (sum, item) => sum + item.totalCalories);
+    }
+
+    return Container(
+      padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 16),
+      color: Theme.of(context).scaffoldBackgroundColor,
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceAround,
+        children: [
+          _buildMealTotalText(context, 'Petit-déj', getMealTotal(MealType.breakfast)),
+          _buildMealTotalText(context, 'Déjeuner', getMealTotal(MealType.lunch)),
+          _buildMealTotalText(context, 'Dîner', getMealTotal(MealType.dinner)),
+          _buildMealTotalText(context, 'Collation', getMealTotal(MealType.snack)),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildMealTotalText(BuildContext context, String label, double value) {
+    return Column(
+      children: [
+        Text(label, style: Theme.of(context).textTheme.bodySmall),
+        Text(
+          value.toStringAsFixed(0),
+          style: Theme.of(context).textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.bold),
+        ),
+      ],
+    );
+  }
+
 }

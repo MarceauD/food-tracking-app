@@ -2,6 +2,9 @@
 
 import 'package:flutter/material.dart';
 import 'package:percent_indicator/percent_indicator.dart';
+import 'package:flutter_animate/flutter_animate.dart';
+import 'package:animated_digit/animated_digit.dart';
+
 
 // lib/widgets/home/summary_card.dart
 
@@ -10,18 +13,26 @@ class _CalorieIndicator extends StatelessWidget {
   final double radius;
   final double total;
   final double goal;
+  final Color textColor;
 
   const _CalorieIndicator({
     required this.radius,
     required this.total,
     required this.goal,
+    required this.textColor, // <-- AJOUTER AU CONSTRUCTEUR
   });
 
   @override
   Widget build(BuildContext context) {
+    final textTheme = Theme.of(context).textTheme;
     // On récupère les styles depuis le thème global
-    final headlineStyle = Theme.of(context).textTheme.displaySmall?.copyWith(fontWeight: FontWeight.w600);
-    final captionStyle = Theme.of(context).textTheme.bodySmall;
+    final headlineStyle = textTheme.displaySmall?.copyWith(fontWeight: FontWeight.w600, color: textColor,);
+    final captionStyle = textTheme.bodySmall;
+
+    final bool isOverGoal = total > goal;
+    final Color progressColor = isOverGoal ? Colors.orange.shade700 : Colors.green;
+
+    final remainingCalories = (goal - total).clamp(0, goal);
 
     return Column(
       children: [
@@ -32,11 +43,15 @@ class _CalorieIndicator extends StatelessWidget {
           center: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              Text(total.toStringAsFixed(0), style: headlineStyle),
+              AnimatedDigitWidget(
+              value: total, // La valeur finale à afficher
+              duration: const Duration(milliseconds: 1200),
+              textStyle: headlineStyle,
+              ),
               Text('KCAL CONSOMMÉES', style: captionStyle),
             ],
           ),
-          progressColor: Colors.green,
+          progressColor: progressColor,
           backgroundColor: Colors.green.withOpacity(0.2),
           circularStrokeCap: CircularStrokeCap.round,
           animation: true,
@@ -46,9 +61,9 @@ class _CalorieIndicator extends StatelessWidget {
         ),
         const SizedBox(height: 8.0),
         Text(
-          '${(goal - total).clamp(0, goal).toStringAsFixed(0)} restantes',
-          // On utilise le style de corps de texte du thème
-          style: Theme.of(context).textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w500),
+          '${remainingCalories.toStringAsFixed(0)} restantes', // Le nombre à animer                   
+          // On peut même ajouter un espace insécable pour un meilleur affichage
+          style: textTheme.bodyLarge?.copyWith(fontWeight: FontWeight.w500),
         ),
       ],
     );
@@ -62,6 +77,7 @@ class _MacroIndicator extends StatelessWidget {
   final double value;
   final double max;
   final Color color;
+  final Color textColor;
 
   // On n'a plus besoin du paramètre 'radius'
   const _MacroIndicator({
@@ -70,10 +86,15 @@ class _MacroIndicator extends StatelessWidget {
     required this.value,
     required this.max,
     required this.color,
+    required this.textColor,
   });
 
   @override
   Widget build(BuildContext context) {
+    final textTheme = Theme.of(context).textTheme;
+    final bool isOverGoal = value > max;
+    final Color progressColor = isOverGoal ? color.withAlpha((1 * 255).toInt()) : color;
+    
     // FittedBox va automatiquement réduire la taille de la Column
     // pour qu'elle rentre dans l'espace fourni par le parent (Expanded).
     return FittedBox(
@@ -90,7 +111,7 @@ class _MacroIndicator extends StatelessWidget {
                 lineWidth: 9.0,
                 percent: (max > 0.0 ? value / max : 0.0).clamp(0.0, 1.0),
                 backgroundColor: color.withAlpha(50),
-                progressColor: color,
+                progressColor: progressColor,
                 circularStrokeCap: CircularStrokeCap.round,
                 animation: true,
                 animateFromLastPercent: true,
@@ -101,12 +122,21 @@ class _MacroIndicator extends StatelessWidget {
                 children: [
                   Icon(iconData, color: color, size: 22), // Taille fixe
                   const SizedBox(height: 4),
+                  AnimatedDigitWidget(
+                    value: value,
+                    duration: const Duration(milliseconds: 800),
+                    textStyle: textTheme.bodySmall?.copyWith(
+                      fontWeight: FontWeight.w600, color: textColor,
+                    ),
+                    // On s'assure qu'il n'y a pas de décimales
+                    fractionDigits: 0, 
+                  ),
+                  // 2. Le texte statique
                   Text(
-                    '${value.toStringAsFixed(0)} g / ${max.toStringAsFixed(0)} g', // Texte simplifié pour gagner de la place
-                    textAlign: TextAlign.center,
-                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                          fontWeight: FontWeight.w600,
-                        ),
+                    ' / ${max.toStringAsFixed(0)} g',
+                    style: textTheme.bodySmall?.copyWith(
+                      color: Colors.grey[600], // Un style plus léger pour l'objectif
+                    ),
                   ),
                 ],
               ),
@@ -153,6 +183,8 @@ class SummaryCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final isDarkMode = Theme.of(context).brightness == Brightness.dark;
+    final textColor = isDarkMode ? Colors.white.withOpacity(0.87) : Colors.grey[800];
     // ON REMPLACE LA Card PAR UN CONTAINER POUR UN CONTRÔLE TOTAL DU STYLE
     return 
     Container(
@@ -179,6 +211,7 @@ class SummaryCard extends StatelessWidget {
               radius: gaugeRadiusCalories,
               total: totalCalories,
               goal: goalCalories,
+              textColor: textColor!, // <-- ON PASSE LA COULEUR
             ),
             const SizedBox(height: 24),
             // LA NOUVELLE ROW, QUI UTILISE EXPANDED
@@ -191,6 +224,7 @@ class SummaryCard extends StatelessWidget {
                     value: totalCarbs,
                     max: goalCarbs,
                     color: Colors.blue,
+                    textColor: textColor,
                   ),
                 ),
                 const SizedBox(width: 8), // Espaceur entre les jauges
@@ -201,6 +235,7 @@ class SummaryCard extends StatelessWidget {
                     value: totalProtein,
                     max: goalProtein,
                     color: Colors.red,
+                    textColor: textColor,
                   ),
                 ),
                 const SizedBox(width: 8),
@@ -211,6 +246,7 @@ class SummaryCard extends StatelessWidget {
                     value: totalFat,
                     max: goalFat,
                     color: Colors.orange,
+                    textColor: textColor,
                   ),
                 ),
               ],

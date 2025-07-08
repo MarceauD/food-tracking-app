@@ -4,6 +4,9 @@ import 'package:openfoodfacts/openfoodfacts.dart';
 import '../helpers/database_helper.dart';
 import '../models/food_item.dart';
 import '../models/portion.dart';
+import 'dart:convert';
+import 'package:http/http.dart' as http;
+import 'package:translator/translator.dart';
 
 enum ProductResultStatus {
   success,
@@ -22,6 +25,7 @@ class ProductFetchResult {
 
 class AddFoodController {
   final Map<String, List<Product>> _searchCache = {};
+  final _translator = GoogleTranslator();
 
   
   // Ajoute un aliment au journal du jour
@@ -51,7 +55,7 @@ class AddFoodController {
     // On configure les paramètres de la recherche textuelle
     final ProductSearchQueryConfiguration configuration =
         ProductSearchQueryConfiguration(
-      parametersList: <Parameter>[
+        parametersList: <Parameter>[
         // On cherche les termes fournis par l'utilisateur
         SearchTerms(terms: [query]),
         SortBy(option: SortOption.POPULARITY), 
@@ -97,11 +101,111 @@ class AddFoodController {
       });
 
       _searchCache[query] = products;
-      return products;
-
+      if (products.length > 5) {
+          return products.sublist(0, 5);
+        }
+        return products;
     } catch (e) {
       print("Erreur pendant la recherche de produits : $e");
       return []; // En cas d'erreur (réseau, etc.), on retourne une liste vide
+    }
+  }
+
+  Future<List<FoodItem>> searchGenericFoods(String query) async {
+    const apiKey = 'NxszZVLpHF5cLXoo1dLgcPHX25WLx5XZtsJgF2UO'; 
+    
+    final translation = await _translator.translate(query, from: 'fr', to: 'en');
+    final englishQuery = translation.text;
+
+    // On construit l'URL de la requête
+    final url = Uri.parse(
+      'https://api.nal.usda.gov/fdc/v1/foods/search?api_key=$apiKey&query=${Uri.encodeComponent(englishQuery)}&dataType=Foundation,SR%20Legacy'
+    );
+
+    try {
+      
+      final response = await http.get(
+      url,
+      headers: {
+        'User-Agent': 'MonSuiviNutritionnel/1.0.0', // Vous pouvez mettre le nom de votre app
+      },
+    ).timeout(const Duration(seconds: 10));
+
+      if (response.statusCode == 200) {
+        final data = json.decode(response.body);
+        final List foodsData = data['foods'] ?? [];
+
+        final List<Future<FoodItem?>> translationTasks = foodsData.map((foodData) async {
+        final englishName = foodData['description'] as String? ?? 'Inconnu';
+        
+        // On traduit le nom du produit en français
+        final translatedName = await _translator.translate(englishName, from: 'en', to: 'fr');
+
+        final List nutrients = foodData['foodNutrients'] ?? [];
+        double getNutrientValue(int id) => (nutrients.firstWhere((n) => n['nutrientId'] == id, orElse: () => {'value': 0.0})['value'] as num).toDouble();
+        
+        final calories = getNutrientValue(1008);
+        if (calories <= 0) return null; // On ignore les aliments sans calories
+        return FoodItem(
+          name: translatedName.text, // On utilise le nom traduit
+          caloriesPer100g: calories,
+          proteinPer100g: getNutrientValue(1003),
+          carbsPer100g: getNutrientValue(1005),
+          fatPer100g: getNutrientValue(1004),
+          quantity: 100.0,
+        );
+      }).toList();
+
+      final initialResults = await Future.wait(translationTasks);
+      final validItems = initialResults.whereType<FoodItem>().toList();
+      final queryLower = query.toLowerCase();
+
+      var validResults = validItems.where((item) {
+          final nameLower = item.name?.toLowerCase() ?? '';
+         
+          if (!nameLower.startsWith(queryLower)) return false;
+          
+          final excludedWords = ['babyfood', 'juice', 'dessert', 'pie', 'sauce', 'strudel'];
+          if (excludedWords.any((word) => nameLower.contains(word))) return false;
+          
+          return true;
+        }).toList();
+
+
+        validResults.sort((a, b) {
+          final nameA = a.name?.toLowerCase() ?? '';
+          final nameB = b.name?.toLowerCase() ?? '';
+          // Important : on trie sur le terme anglais envoyé à l'API
+          final queryLower = englishQuery.toLowerCase(); 
+
+          // Règle 1 : Priorité à ce qui commence par la recherche
+          final aStartsWith = nameA.startsWith(queryLower);
+          final bStartsWith = nameB.startsWith(queryLower);
+          if (aStartsWith && !bStartsWith) return -1; // a est meilleur
+          if (!aStartsWith && bStartsWith) return 1;  // b est meilleur
+
+          // Règle 2 : Priorité aux noms plus courts (moins de mots)
+          final wordCountA = nameA.split(' ').length;
+          final wordCountB = nameB.split(' ').length;
+          if (wordCountA < wordCountB) return -1; // a est meilleur
+          if (wordCountB < wordCountA) return 1;  // b est meilleur
+
+          // Si tout est égal, on ne change pas l'ordre
+          return 0;
+        });
+      
+        if (validResults.length > 5) {
+          return validResults.sublist(0, 5);
+        }
+        return validResults;
+
+      } else {
+        print("Erreur de l'API USDA : ${response.statusCode} - ${response.body}");
+        return [];
+      }
+    } catch (e) {
+      print("Erreur réseau lors de la recherche USDA : $e");
+      return [];
     }
   }
 

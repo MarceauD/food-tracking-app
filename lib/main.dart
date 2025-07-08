@@ -6,7 +6,10 @@ import 'package:sqflite/sqflite.dart';
 import 'package:path/path.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
-import 'providers/theme_provider.dart'; // <-- Importer notre nouvelle classe
+import 'providers/theme_provider.dart';
+import 'widgets/common/notification_service.dart'; 
+import 'package:flutter_localizations/flutter_localizations.dart';// <-- Importer notre nouvelle classe
+import 'package:shared_preferences/shared_preferences.dart';
 
 Future<void> deleteDb() async {
   final dbPath = await getDatabasesPath();
@@ -14,18 +17,39 @@ Future<void> deleteDb() async {
   await deleteDatabase(path);
 }
 
-void main() async {
+Future<void> main() async {
+  // 1. On s'assure que tout est initialisé avant de continuer
+  WidgetsFlutterBinding.ensureInitialized();
+  
+  // 2. On crée UNE SEULE instance de notre service de notifications
+  final NotificationService notificationService = NotificationService();
+
+  // 3. On initialise le service et on demande les permissions
+  await notificationService.init();
+  await notificationService.requestPermissions();
+  
+  // 4. On programme les rappels
+  await notificationService.scheduleDailyMorningReminder();
+  // Vous ajouterez ici l'appel pour la notification hebdomadaire plus tard
+
+  // Le reste de votre logique d'initialisation ne change pas
+  final prefs = await SharedPreferences.getInstance();
+  final String savedThemeName = prefs.getString('theme_mode') ?? ThemeMode.light.name;
+  final ThemeMode initialThemeMode = ThemeMode.values.firstWhere(
+    (e) => e.name == savedThemeName,
+    orElse: () => ThemeMode.light, // Sécurité supplémentaire
+  );
+  
+  await initializeDateFormatting('fr_FR', null);
   OpenFoodAPIConfiguration.userAgent = UserAgent(
-    name:'MonSuiviNutritionnel', // Nom de votre application
-    version:'0.1',
+    name: 'MonSuiviNutritionnel',
+    version: '1.0.0',
   );
 
-  WidgetsFlutterBinding.ensureInitialized(); 
-  await initializeDateFormatting('fr_FR', null);
-
+  // 5. On lance l'application
   runApp(
     ChangeNotifierProvider(
-      create: (context) => ThemeProvider(),
+      create: (context) => ThemeProvider(initialThemeMode),
       child: const MyApp(),
     ),
   );
@@ -38,31 +62,32 @@ class MyApp extends StatelessWidget {
   Widget build(BuildContext context) {
 
     final themeProvider = Provider.of<ThemeProvider>(context);
+    
+    
 
     return MaterialApp(
       title: 'Mon Suivi Nutritionnel',
       themeMode: themeProvider.themeMode,
 
       theme: ThemeData(
-        
-        useMaterial3: true,
-
-        scaffoldBackgroundColor: const Color(0xFFF8F9FA), // Un gris très clair et neutre
-
-        colorScheme: ColorScheme.fromSeed(
-          seedColor: Colors.green,
-          primary: Colors.green.shade600, // Un vert un peu plus soutenu pour les accents
-          surface: const Color(0xFFF8F9FA),
-          background: const Color(0xFFF8F9FA), // Le même que le scaffold
-        ),
-
-        // Un thème personnalisé pour toutes les cartes de l'application
-        cardTheme: CardThemeData(
-          elevation: 1.5, // Une ombre très subtile pour un effet de flottement
-          shadowColor: Colors.black.withOpacity(0.08), // Une ombre douce
-          surfaceTintColor: Colors.white, // Très important pour garder les cartes blanches en Material 3
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16.0))
-        ),
+      useMaterial3: true,
+      scaffoldBackgroundColor: const Color(0xFFF8F9FA),
+      colorScheme: ColorScheme.fromSeed(
+        seedColor: Colors.green,
+        // CORRECTION 1 : Il faut spécifier la luminosité pour chaque thème
+        brightness: Brightness.light, 
+        primary: Colors.green.shade600,
+        // CORRECTION 2 : La couleur de surface (des cartes) doit être blanche
+        surface: Colors.white, 
+        background: const Color(0xFFF8F9FA),
+      ),
+      // CORRECTION 3 : Le nom de la classe est CardThemeData, pas CardTheme
+      cardTheme: CardThemeData(
+        elevation: 1.5,
+        shadowColor: Colors.black.withOpacity(0.08),
+        surfaceTintColor: Colors.white,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16.0)),
+      ),
             
         textTheme: GoogleFonts.poppinsTextTheme(ThemeData.light().textTheme).copyWith(
           // Style pour les grands titres (ex: "Bonjour !")
@@ -89,6 +114,8 @@ class MyApp extends StatelessWidget {
           ),
         ),
 
+        
+
         inputDecorationTheme: InputDecorationTheme(
           border: OutlineInputBorder(
             borderRadius: BorderRadius.circular(12.0),
@@ -108,22 +135,58 @@ class MyApp extends StatelessWidget {
 
       ),
 
-      darkTheme: ThemeData(
-        useMaterial3: true,
-        scaffoldBackgroundColor: const Color(0xFF121212), // Un noir très foncé
-        colorScheme: ColorScheme.fromSeed(
-          seedColor: Colors.green,
-          brightness: Brightness.dark, // On spécifie que c'est un thème sombre
-          surface: const Color(0xFF1E1E1E), // Des cartes légèrement plus claires
-        ),
-        // Le thème de texte s'adaptera automatiquement (texte blanc sur fond sombre)
-        textTheme: GoogleFonts.poppinsTextTheme(ThemeData.dark().textTheme),
-        cardTheme: CardThemeData(
-          elevation: 1.0,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16.0)),
-        ),
-        ),
+    darkTheme: ThemeData(
+      useMaterial3: true,
+      brightness: Brightness.dark, // La luminosité est bien définie ici
+      scaffoldBackgroundColor: const Color(0xFF121212),
+      colorScheme: ColorScheme.fromSeed(
+        seedColor: Colors.green,
+        brightness: Brightness.dark,
+        primary: Colors.green.shade400,
+        surface: const Color(0xFF1E1E1E), // Surface pour les cartes sombres
+      ),
+      // CORRECTION 3 : Le nom de la classe est CardThemeData
+      cardTheme: CardThemeData(
+        elevation: 1.0,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16.0)),
+      ),
+      // AMÉLIORATION : On s'assure que le texte par défaut est bien lisible
+      textTheme: GoogleFonts.poppinsTextTheme(ThemeData.dark().textTheme).copyWith(
+        headlineSmall: GoogleFonts.poppins(
+            fontSize: 22,
+            fontWeight: FontWeight.bold,
+          ),
+          // Style pour les titres de section ou de carte
+          titleLarge: GoogleFonts.poppins(
+            fontSize: 18,
+            fontWeight: FontWeight.w600, // Semi-gras
+          ),
+          // Style pour le corps de texte normal
+          bodyMedium: GoogleFonts.poppins(
+            fontSize: 14,
+          ),
+          // Style pour les textes secondaires ou les sous-titres
+          bodySmall: GoogleFonts.poppins(
+            fontSize: 12,
+          ),
+      ).apply(
+        bodyColor: Colors.white.withOpacity(0.87),
+        displayColor: Colors.white,
+      ),
+    ),
+      
+        
+      locale: const Locale('fr'), // On définit le français comme langue par défaut
 
+      localizationsDelegates: const [
+        GlobalMaterialLocalizations.delegate,
+        GlobalWidgetsLocalizations.delegate,
+        GlobalCupertinoLocalizations.delegate,
+      ],
+      supportedLocales: const [
+        Locale('fr'), // Français
+        Locale('en'), // Anglais (comme langue de secours)
+      ],
       home: const HomeScreen(), // L'écran principal est HomeScreen
     );
   }
