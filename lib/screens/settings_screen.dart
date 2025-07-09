@@ -363,20 +363,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 const SizedBox(height: 24),
 
                 // BOUTON POUR GENERATION ALEATOIRES DE DONNEES DE TEST
-              ElevatedButton(
-                onPressed: () {
-                  // On instancie le controller pour appeler la méthode
-                  final controller = HomeController();
-                  controller.generateAndSaveFakeSummaries();
-                  
-                  // On affiche un message de confirmation
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('Données de test générées !')),
-                  );
-                },
-                child: const Text('Générer les données de test'),
-              ),
-
+              
               // CARTE DE COACHING
               Card(
                 child: Column(

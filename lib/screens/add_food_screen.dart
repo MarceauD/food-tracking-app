@@ -130,105 +130,95 @@ class _AddFoodScreenState extends State<AddFoodScreen> {
     });
   }
 
-  void _onGenericFoodSelected(FoodItem item) {
-    _populateFields(item);
-    // On cache les résultats de recherche
-    setState(() {
-      _usdaResults = [];
-      _openFoodFactsResults = [];
-      _searchController.clear();
-    });
-    FocusScope.of(context).unfocus();
-  }
+  
+  Future<void> _handleFoodSelection({
+  required FoodItem foodItem,
+  Product? originalProduct, // Le produit original, s'il vient d'OpenFoodFacts
+}) async {
+  // 1. On pré-remplit les champs
+  _populateFields(foodItem);
 
-  void _onApiProductSelected(Product product) async {
-    // On convertit le Product en FoodItem
-    final foodItem = convertProductToFoodItem(product);
+  // 2. On appelle le controller pour trouver les portions
+  final portions = await _controller.findAvailablePortions(
+    foodItem.name.toString(),
+    originalProduct: originalProduct,
+  );
 
-    if (foodItem != null) {
-      _populateFields(foodItem);
-      // On charge les portions possibles pour ce nouvel aliment
-      final portions = await _controller.getPortionsForFood(foodItem.name ?? '');
-      setState(() {
-        _availablePortions = portions;
-        if (portions.isNotEmpty) {
-          _selectedPortion = portions.first;
-          _useGrams = false;
-        } else {
-          _useGrams = true;
-        }
-      });
-    } else {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Données nutritionnelles manquantes pour ce produit.'))
-      );
-    }
-    
-    // On cache les résultats de recherche
-    setState(() {
-      _usdaResults = [];
-      _openFoodFactsResults = [];
-      _searchController.clear();
-    });
-    FocusScope.of(context).unfocus();
-  }
+  // 3. On met à jour l'interface
+  setState(() {
+    _availablePortions = portions;
+    _selectedPortion = portions.first;
+    _useGrams = false;
 
-  Future<void> _onProductSelected(Product product) async {
-    // On utilise la même logique que pour le scan pour pré-remplir les champs
-    _populateFieldsFromProduct(product);
+    // On nettoie les résultats de recherche
+    _usdaResults = [];
+    _openFoodFactsResults = [];
+    _searchController.clear();
+  });
 
-    List<Portion> portions = [];
+  FocusScope.of(context).unfocus();
+}
 
-    final String? servingSizeFromApi = product.servingSize;
-    if (servingSizeFromApi != null && servingSizeFromApi.isNotEmpty) {
-      // On essaie d'extraire le poids en grammes de la chaîne de texte (ex: "50 g")
-      final RegExp regex = RegExp(r'(\d+(\.\d+)?)');
-      final Match? match = regex.firstMatch(servingSizeFromApi);
-      if (match != null) {
-        final double? weight = double.tryParse(match.group(1)!);
-        if (weight != null) {
-          print('ℹ️ Portion trouvée via API : $servingSizeFromApi');
-          portions.add(Portion(name: '1 portion ($servingSizeFromApi)', weightInGrams: weight));
-        }
-      }
-    }
+Future<void> _showAddPortionDialog() async {
+    final portionNameController = TextEditingController();
+    final portionWeightController = TextEditingController();
+    final formKey = GlobalKey<FormState>();
 
-    if (portions.isEmpty) {
-      print('ℹ️ Aucune portion API, recherche dans la base de données locale...');
-      portions = await _controller.getPortionsForFood(product.productName ?? '');
-    }
+    return showDialog<void>(
+      context: context,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          title: const Text('Ajouter une portion'),
+          content: Form(
+            key: formKey,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: <Widget>[
+                TextFormField(
+                  controller: portionNameController,
+                  decoration: const InputDecoration(labelText: 'Nom de la portion (ex: 1 tranche)'),
+                  validator: (value) => value!.isEmpty ? 'Champ requis' : null,
+                ),
+                TextFormField(
+                  controller: portionWeightController,
+                  decoration: const InputDecoration(labelText: 'Poids en grammes'),
+                  keyboardType: TextInputType.number,
+                  validator: (value) => value!.isEmpty || double.tryParse(value) == null ? 'Poids invalide' : null,
+                ),
+              ],
+            ),
+          ),
+          actions: <Widget>[
+            TextButton(
+              child: const Text('Annuler'),
+              onPressed: () => Navigator.of(context).pop(),
+            ),
+            ElevatedButton(
+              child: const Text('Sauvegarder'),
+              onPressed: () async {
+                if (formKey.currentState!.validate()) {
+                  final foodName = _nameController.text;
+                  final portionName = portionNameController.text;
+                  final weight = double.parse(portionWeightController.text);
 
-    // On vide la recherche pour cacher la liste des résultats
-    setState(() {
-      _availablePortions = portions;
-      if (portions.isNotEmpty) {
-        _selectedPortion = portions.first;
-        _useGrams = false; // On passe en mode portion
-      } else {
-        _useGrams = true; // On reste en mode grammes
-      }
-      _searchController.clear();
-      _openFoodFactsResults = [];
-    });
-    FocusScope.of(context).unfocus();
-  }
+                  await _controller.saveUserPortion(foodName, portionName, weight);
+                  Navigator.of(context).pop();
 
-  void _populateFieldsFromProduct(Product product) {
-    final calories = product.nutriments?.getValue(Nutrient.energyKCal, PerSize.oneHundredGrams);
-    // On ne pré-remplit que si les données de base sont là
-    if (calories != null) {
-      _nameController.text = product.productName ?? '';
-      _caloriesController.text = calories.toStringAsFixed(2);
-      _proteinController.text = (product.nutriments?.getValue(Nutrient.proteins, PerSize.oneHundredGrams) ?? 0.0).toStringAsFixed(2);
-      _carbsController.text = (product.nutriments?.getValue(Nutrient.carbohydrates, PerSize.oneHundredGrams) ?? 0.0).toStringAsFixed(2);
-      _fatController.text = (product.nutriments?.getValue(Nutrient.fat, PerSize.oneHundredGrams) ?? 0.0).toStringAsFixed(2);
-      _quantityController.text = '100';
-    } else {
-      // Si le produit est incomplet, on informe l'utilisateur
-      ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Ce produit n\'a pas de données nutritionnelles complètes.'))
-      );
-    }
+                  // On rafraîchit la liste des portions disponibles
+                  final updatedPortions = await _controller.findAvailablePortions(
+                    foodName // On passe un FoodItem temporaire
+                  );
+                  setState(() {
+                    _availablePortions = updatedPortions;
+                    _selectedPortion = updatedPortions.firstWhere((p) => p.name == portionName);
+                  });
+                }
+              },
+            ),
+          ],
+        );
+      },
+    );
   }
 
   Future<void> _addToFavorites(FoodItem item) async {
@@ -281,56 +271,49 @@ class _AddFoodScreenState extends State<AddFoodScreen> {
   }
 
   Widget _buildQuantityInput() {
-  return Column(
-    children: [
-
-      const SizedBox(height: 24),
-      // Sélecteur pour choisir entre Grammes et Portions
-      ToggleButtons(
-        isSelected: [_useGrams, !_useGrams],
-        onPressed: (index) {
-          // On ne peut pas désactiver les portions s'il n'y en a pas de disponible
-          if (index == 1 && _availablePortions.isEmpty) return;
-          setState(() {
-            _useGrams = index == 0;
-          });
-        },
-        borderRadius: BorderRadius.circular(8.0),
-        children: const [
-          Padding(padding: EdgeInsets.symmetric(horizontal: 16), child: Text('Grammes')),
-          Padding(padding: EdgeInsets.symmetric(horizontal: 16), child: Text('Portions')),
-        ],
-      ),
-      const SizedBox(height: 16),
-
-      // On affiche le champ de saisie correspondant au mode choisi
-      _useGrams
-          ? _buildTextField(label: 'Quantité (g)', controller: _quantityController, isNumeric: true)
-          : Row(
-              children: [
-                Expanded(
-                  flex: 2,
-                  child: TextFormField(
-                    controller: _portionQuantityController,
-                    keyboardType: TextInputType.number,
-                    decoration: const InputDecoration(labelText: 'Nombre'),
-                  ),
-                ),
-                const SizedBox(width: 16),
-                Expanded(
-                  flex: 3,
-                  child: DropdownButtonFormField<Portion>(
-                    value: _selectedPortion,
-                    items: _availablePortions.map((p) => DropdownMenuItem(value: p, child: Text(p.name))).toList(),
-                    onChanged: (portion) => setState(() => _selectedPortion = portion),
-                    decoration: const InputDecoration(labelText: 'Portion'),
-                  ),
-                ),
-              ],
+    return Column(
+      children: [
+        Row(
+          children: [
+            Expanded(
+              child: SegmentedButton<bool>(
+                segments: const [
+                  ButtonSegment(value: true, label: Text('Grammes')),
+                  ButtonSegment(value: false, label: Text('Portions')),
+                ],
+                selected: {_useGrams},
+                onSelectionChanged: (selection) => setState(() => _useGrams = selection.first),
+              ),
             ),
-    ],
-  );
-}
+            // NOUVEAU BOUTON pour ajouter une portion
+            if (!_useGrams)
+              IconButton(
+                icon: const Icon(Icons.add_circle_outline),
+                tooltip: 'Ajouter une portion personnalisée',
+                onPressed: _showAddPortionDialog,
+              ),
+          ],
+        ),
+        const SizedBox(height: 10),
+        if (_useGrams)
+          _buildTextField(label: 'Quantité (g)', controller: _quantityController, isNumeric: true)
+        else if (_availablePortions.isNotEmpty)
+          DropdownButtonFormField<Portion>(
+            value: _selectedPortion,
+            items: _availablePortions.map((Portion portion) {
+              return DropdownMenuItem<Portion>(
+                value: portion,
+                child: Text(portion.name),
+              );
+            }).toList(),
+            onChanged: (Portion? newValue) => setState(() => _selectedPortion = newValue),
+            decoration: const InputDecoration(labelText: 'Choisir une portion'),
+          )
+        else
+          const Text("Aucune portion disponible pour cet aliment."),
+      ],
+    );
+  }
 
   Widget _buildTextField(
     {required String label,
@@ -440,7 +423,7 @@ Widget _buildSearchResultsList() {
           title: Text(item.name ?? 'Aliment générique'),
           subtitle: Text('${item.caloriesPer100g.toStringAsFixed(0)} kcal pour 100g'),
           // ON APPELLE DIRECTEMENT LA MÉTHODE QUI GÈRE LES FoodItem
-          onTap: () => _onGenericFoodSelected(item),
+          onTap: () => _handleFoodSelection(foodItem: item),
         );
       } 
       // Sinon, c'est un résultat de Open Food Facts
@@ -467,7 +450,9 @@ Widget _buildSearchResultsList() {
           onTap: () {
             final foodItem = convertProductToFoodItem(product);
             if (foodItem != null) {
-              _onGenericFoodSelected(foodItem);
+            // On appelle notre nouvelle méthode unifiée en lui passant
+            // à la fois le FoodItem et le Product original pour la recherche de portion
+            _handleFoodSelection(foodItem: foodItem, originalProduct: product);
             } else {
               // Gérer le cas où le produit est incomplet
                ScaffoldMessenger.of(context).showSnackBar(
@@ -516,47 +501,11 @@ Widget _buildManualEntryForm() {
           _buildTextField(label: 'Glucides / 100g', controller: _carbsController, isNumeric: true),
           _buildTextField(label: 'Lipides / 100g', controller: _fatController, isNumeric: true),
           const SizedBox(height: 24),
-          ToggleButtons(
-            isSelected: [_useGrams, !_useGrams],
-            onPressed: (index) {
-              if (index == 1 && _availablePortions.isEmpty) return;
-              setState(() { _useGrams = index == 0; });
-            },
-            borderRadius: BorderRadius.circular(8.0),
-            children: const [
-              Padding(padding: EdgeInsets.symmetric(horizontal: 16), child: Text('Grammes')),
-              Padding(padding: EdgeInsets.symmetric(horizontal: 16), child: Text('Portions')),
-            ],
-          ),
+          _buildQuantityInput(),
           const SizedBox(height: 16),
           
           // On affiche le bon champ de saisie de manière conditionnelle
-          if (_useGrams)
-            _buildTextField(label: 'Quantité (g)', controller: _quantityController, isNumeric: true)
-          else
-            Row(
-              children: [
-                Expanded(
-                  flex: 2,
-                  child: TextFormField(
-                    controller: _portionQuantityController,
-                    keyboardType: TextInputType.number,
-                    decoration: const InputDecoration(labelText: 'Nombre'),
-                  ),
-                ),
-                const SizedBox(width: 16),
-                Expanded(
-                  flex: 3,
-                  child: DropdownButtonFormField<Portion>(
-                    value: _selectedPortion,
-                    items: _availablePortions.map((p) => DropdownMenuItem(value: p, child: Text(p.name))).toList(),
-                    onChanged: (portion) => setState(() => _selectedPortion = portion),
-                    decoration: const InputDecoration(labelText: 'Portion'),
-                  ),
-                ),
-              ],
-            ),
-            
+                   
           const SizedBox(height: 20),
           PrimaryButton(
             text: 'Ajouter au journal',

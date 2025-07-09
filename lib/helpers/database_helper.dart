@@ -28,7 +28,7 @@ class DatabaseHelper {
       path,
       version: 6, 
       onCreate: _createDB,
-      onUpgrade: _upgradeDB, // <-- On ajoute cette ligne
+      onUpgrade: _upgradeDB,
     );
   }
 
@@ -136,70 +136,105 @@ class DatabaseHelper {
     await db.execute('''
    INSERT INTO common_portions (food_keyword, portion_name, weight_in_grams) VALUES
     -- FRUITS
-    ('oeuf', '1 oeuf moyen', 50),
-    ('oeuf', '1 jaune', 20),
-    ('oeuf', '1 blanc', 30),
-    ('pomme', '1 petite', 100),
-    ('pomme', '1 moyenne', 150),
-    ('banane', '1 petite', 90),
-    ('banane', '1 moyenne', 120),
-    ('orange', '1 orange', 150),
-    ('clémentine', '1 clémentine', 50),
-    ('fraise', '1 poignée', 100),
-    ('framboise', '1 poignée', 70),
-    ('kiwi', '1 kiwi', 75),
-    ('avocat', '1/2 avocat', 70),
+    ('oeuf', '1 oeuf moyen (50g)', 50),
+    ('oeuf', '1 jaune (20g)', 20),
+    ('oeuf', '1 blanc (30g)', 30),
+    ('pomme', '1 petite (100g)', 100),
+    ('pomme', '1 moyenne (150g)', 150),
+    ('banane', '1 petite (90g)', 90),
+    ('banane', '1 moyenne (120g)', 120),
+    ('orange', '1 orange (150g)', 150),
+    ('clémentine', '1 clémentine (50g)', 50),
+    ('fraise', '1 poignée (100g)', 100),
+    ('framboise', '1 poignée (100g)', 70),
+    ('kiwi', '1 kiwi (75g)', 75),
+    ('avocat', '1/2 avocat (70g)', 70),
     
     -- FÉCULENTS
-    ('pain', '1 tranche (mie)', 25),
-    ('pain', '1 tranche (complet)', 40),
-    ('pain', '1 baguette', 250),
-    ('riz', '1 portion (cuit)', 150),
-    ('pâtes', '1 portion (cuites)', 180),
+    ('pain', '1 tranche (25g)', 25),
+    ('pain', '1 tranche (40g)', 40),
+    ('pain', '1 baguette (250g)', 250),
+    ('riz', '1 portion cuit (150g)', 150),
+    ('pâtes', '1 portion cuites (180g)', 180),
     ('semoule', '1 portion (cuite)', 150),
-    ('pomme de terre', '1 petite', 80),
-    ('pomme de terre', '1 moyenne', 120),
-    ('flocons d''avoine', '1 bol', 40),
-    ('lentilles', '1 portion (cuites)', 200),
+    ('pomme de terre', '1 petite (80g)', 80),
+    ('pomme de terre', '1 moyenne (120g)', 120),
+    ('flocons d''avoine', '1 bol (40g)', 40),
+    ('lentilles', '1 portion cuites (200g)', 200),
     
     -- LÉGUMES
-    ('tomate', '1 tomate', 120),
-    ('tomate', '1 tomate cerise', 10),
-    ('carotte', '1 carotte', 100),
-    ('courgette', '1/2 courgette', 125),
-    ('oignon', '1 oignon', 100),
-    ('ail', '1 gousse', 5),
-    ('salade', '1 bol', 50),
+    ('tomate', '1 tomate (120g)', 120),
+    ('tomate', '1 tomate cerise (10g)', 10),
+    ('carotte', '1 carotte (100g)', 100),
+    ('courgette', '1/2 courgette (125g)', 125),
+    ('oignon', '1 oignon (100g)', 100),
+    ('ail', '1 gousse (5g)', 5),
+    ('salade', '1 bol (50g)', 50),
     
     -- VIANDES & POISSONS
-    ('poulet', '1 filet', 120),
-    ('poulet', '1 cuisse', 150),
-    ('jambon', '1 tranche', 45),
-    ('lardons', '1 portion', 75),
-    ('steak', '1 steak haché', 100),
-    ('saumon', '1 pavé', 130),
-    ('thon', '1 petite boîte', 90),
+    ('poulet', '1 filet (120g)', 120),
+    ('poulet', '1 cuisse (150g)', 150),
+    ('jambon', '1 tranche (45g)', 45),
+    ('lardons', '1 portion (75g)', 75),
+    ('steak', '1 steak haché (100g)', 100),
+    ('saumon', '1 pavé (130g)', 130),
+    ('thon', '1 petite boîte (90g)', 90),
     
     -- PRODUITS LAITIERS
-    ('lait', '1 verre', 200),
-    ('lait', '1 bol', 250),
-    ('yaourt', '1 pot', 125),
-    ('fromage blanc', '1 portion', 100),
-    ('camembert', '1/8 de part', 30),
-    ('fromage', '1 tranche', 30),
-    ('parmesan', '1 c. à soupe', 10),
+    ('lait', '1 verre (200mL)', 200),
+    ('lait', '1 bol (250 mL)', 250),
+    ('yaourt', '1 pot (125g)', 125),
+    ('fromage blanc', '1 portion (100g)', 100),
+    ('camembert', '1 tranche (30g)', 30),
+    ('fromage', '1 tranche (30g)', 30),
+    ('parmesan', '1 c. à soupe (10g)', 10),
     
     -- SUCRES, GRAS & AUTRES
-    ('sucre', '1 morceau', 5),
-    ('sucre', '1 c. à café', 5),
-    ('huile', '1 c. à soupe', 10),
-    ('beurre', '1 noisette', 10),
-    ('confiture', '1 c. à café', 15),
-    ('miel', '1 c. à café', 10),
-    ('chocolat', '1 carré', 10),
-    ('amandes', '1 poignée', 25),
-    ('noix', '1 poignée', 25)
+    ('sucre', '1 morceau (5g)', 5),
+    ('sucre', '1 c. à café (5g)', 5),
+    ('huile', '1 c. à soupe (10g)', 10),
+    ('beurre', '1 noisette (10g)', 10),
+    ('confiture', '1 c. à café (15g)', 15),
+    ('miel', '1 c. à café (10g)', 10),
+    ('chocolat', '1 carré (10g)', 10),
+    ('amandes', '1 poignée (25g)', 25),
+    ('noix', '1 poignée (25g)', 25)
     ''');
+
+    await db.execute('''
+      CREATE TABLE user_portions (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        food_name TEXT NOT NULL,
+        portion_name TEXT NOT NULL,
+        weight_in_grams REAL NOT NULL
+      )
+    ''');
+  }
+
+  Future<void> saveUserPortion(String foodName, String portionName, double weight) async {
+    final db = await instance.database;
+    await db.insert(
+      'user_portions',
+      {
+        'food_name': foodName.toLowerCase(),
+        'portion_name': portionName,
+        'weight_in_grams': weight,
+      },
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
+  }
+
+  Future<List<Portion>> getUserPortionsForFood(String foodName) async {
+    final db = await instance.database;
+    final res = await db.query(
+      'user_portions',
+      where: 'food_name = ?',
+      whereArgs: [foodName.toLowerCase()],
+    );
+
+    return res.isNotEmpty
+        ? res.map((json) => Portion.fromJson(json)).toList()
+        : [];
   }
 
   // Sauvegarde ou met à jour le profil de l'utilisateur (il n'y en a qu'un)
@@ -269,6 +304,7 @@ class DatabaseHelper {
     }
   }
 
+  
   Future<int> deleteFoodLog(int id) async {
     final db = await instance.database;
     return await db.delete('food_log', where: 'id = ?', whereArgs: [id]);
@@ -368,27 +404,51 @@ class DatabaseHelper {
   }
 
   Future<List<Portion>> getPortionsForFood(String foodName) async {
-    final db = await instance.database;
-    final lowerFoodName = foodName.toLowerCase();
+  final db = await instance.database;
+  
+  // 1. Nettoyage initial de la chaîne de recherche
+  final cleanedName = foodName.toLowerCase().replaceAll(RegExp(r'[,]'), '');
 
-    // Cette recherche est simple mais efficace pour commencer
-    final res = await db.query(
-      'common_portions',
-      where: 'food_keyword IN (SELECT value FROM json_each(?) WHERE value LIKE ?)',
-      whereArgs: [
-        '["${lowerFoodName.split(' ').join('","')}"]',
-        '%${lowerFoodName.split(' ').first}%'
-      ],
-    );
-
-    if (res.isNotEmpty) {
-      return res.map((json) => Portion(
-        name: json['portion_name'] as String,
-        weightInGrams: json['weight_in_grams'] as double,
-      )).toList();
+  // 2. Extraction et normalisation des mots-clés
+  final keywords = cleanedName.split(' ').map((word) {
+    // Si le mot se termine par 's' et a plus de 3 lettres, on retire le 's'
+    if (word.endsWith('s') && word.length > 3) {
+      return word.substring(0, word.length - 1);
     }
+    return word;
+  }).toSet().toList(); // .toSet().toList() pour supprimer les doublons
+
+  if (keywords.isEmpty) {
     return [];
   }
+
+  // 3. On construit une requête SQL dynamique
+  // Elle va chercher les portions dont le mot-clé est DANS notre liste de mots-clés
+  final placeholders = List.generate(keywords.length, (_) => '?').join(',');
+  final whereClause = 'food_keyword IN ($placeholders)';
+
+  final res = await db.query(
+    'common_portions',
+    where: whereClause,
+    whereArgs: keywords, // On passe notre liste de mots-clés normalisés
+  );
+
+  // 4. On utilise un Set pour s'assurer que chaque portion est unique
+  final Set<String> uniquePortionNames = {};
+  final List<Portion> uniquePortions = [];
+
+  for (var json in res) {
+    final portionName = json['portion_name'] as String;
+    if (uniquePortionNames.add(portionName)) { // .add() retourne true si l'élément est nouveau
+      uniquePortions.add(Portion(
+        name: portionName,
+        weightInGrams: json['weight_in_grams'] as double,
+      ));
+    }
+  }
+
+  return uniquePortions;
+}
 
   //opérations sur les repas sauvegardés
   Future<void> saveMeal(String name, List<FoodItem> items) async {

@@ -18,7 +18,8 @@ enum ProductResultStatus {
 
 class ProductFetchResult {
   final ProductResultStatus status;
-  final FoodItem? foodItem; // Ne sera présent qu'en cas de succès
+  final FoodItem? foodItem;
+
 
   ProductFetchResult({required this.status, this.foodItem});
 }
@@ -26,7 +27,7 @@ class ProductFetchResult {
 class AddFoodController {
   final Map<String, List<Product>> _searchCache = {};
   final _translator = GoogleTranslator();
-
+  final searchLimit = 10;
   
   // Ajoute un aliment au journal du jour
   Future<void> submitFood(FoodItem item) async {
@@ -101,8 +102,8 @@ class AddFoodController {
       });
 
       _searchCache[query] = products;
-      if (products.length > 5) {
-          return products.sublist(0, 5);
+      if (products.length > searchLimit) {
+          return products.sublist(0, searchLimit);
         }
         return products;
     } catch (e) {
@@ -110,6 +111,46 @@ class AddFoodController {
       return []; // En cas d'erreur (réseau, etc.), on retourne une liste vide
     }
   }
+  
+  Future<List<Portion>> findAvailablePortions(String foodName, {Product? originalProduct}) async {
+    List<Portion> portions = [];
+
+    // Priorité 1: Portions personnalisées de l'utilisateur
+    portions = await DatabaseHelper.instance.getUserPortionsForFood(foodName ?? '');
+
+    // Priorité 2: Portion de l'API (si un produit original est fourni)
+    if (portions.isEmpty && originalProduct != null) {
+      final String? servingSizeFromApi = originalProduct.servingSize;
+      if (servingSizeFromApi != null && servingSizeFromApi.isNotEmpty) {
+        final RegExp regex = RegExp(r'(\d+(\.\d+)?)');
+        final Match? match = regex.firstMatch(servingSizeFromApi);
+        if (match != null) {
+          final double? weight = double.tryParse(match.group(1)!);
+          if (weight != null) {
+            portions.add(Portion(name: '1 portion ($servingSizeFromApi)', weightInGrams: weight));
+          }
+        }
+      }
+    }
+
+    // Priorité 3: Recherche dans notre base de données générique
+    if (portions.isEmpty) {
+      portions = await DatabaseHelper.instance.getPortionsForFood(foodName ?? '');
+    }
+
+    // Priorité 4: Portion par défaut si toujours rien
+    if (portions.isEmpty) {
+      portions.add(Portion(name: 'Portion (100g)', weightInGrams: 100.0));
+    }
+
+    return portions;
+  }
+
+
+  Future<void> saveUserPortion(String foodName, String portionName, double weight) async {
+    await DatabaseHelper.instance.saveUserPortion(foodName, portionName, weight);
+  }
+  
 
   Future<List<FoodItem>> searchGenericFoods(String query) async {
     const apiKey = 'NxszZVLpHF5cLXoo1dLgcPHX25WLx5XZtsJgF2UO'; 
@@ -194,8 +235,8 @@ class AddFoodController {
           return 0;
         });
       
-        if (validResults.length > 5) {
-          return validResults.sublist(0, 5);
+        if (validResults.length > searchLimit) {
+          return validResults.sublist(0, searchLimit);
         }
         return validResults;
 

@@ -10,6 +10,7 @@ import 'providers/theme_provider.dart';
 import 'widgets/common/notification_service.dart'; 
 import 'package:flutter_localizations/flutter_localizations.dart';// <-- Importer notre nouvelle classe
 import 'package:shared_preferences/shared_preferences.dart';
+import 'controllers/home_controller.dart';
 
 Future<void> deleteDb() async {
   final dbPath = await getDatabasesPath();
@@ -48,8 +49,11 @@ Future<void> main() async {
 
   // 5. On lance l'application
   runApp(
-    ChangeNotifierProvider(
-      create: (context) => ThemeProvider(initialThemeMode),
+    MultiProvider(
+      providers: [
+        ChangeNotifierProvider(create: (context) => ThemeProvider(initialThemeMode)),
+        ChangeNotifierProvider(create: (context) => HomeController()),
+      ],
       child: const MyApp(),
     ),
   );
