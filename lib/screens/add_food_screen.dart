@@ -34,6 +34,7 @@ class _AddFoodScreenState extends State<AddFoodScreen> {
   final _portionQuantityController = TextEditingController(text: '1');
   List<FoodItem> _usdaResults = [];
   List<Product> _openFoodFactsResults = [];
+  List<FoodItem> _historyResults = [];
   bool _isSearching = false; // Pour afficher un indicateur de chargement
   Timer? _debounce; // Pour ne pas lancer une recherche à chaque lettre tapée
 
@@ -81,49 +82,29 @@ class _AddFoodScreenState extends State<AddFoodScreen> {
   }
 
   void _onSearchChanged() {
-    // Annule le timer précédent à chaque nouvelle lettre
     if (_debounce?.isActive ?? false) _debounce!.cancel();
-    
-    // Démarre un nouveau timer de 500ms
     _debounce = Timer(const Duration(milliseconds: 500), () async {
-      // Une fois le timer écoulé, on lance la recherche
-      if (_searchController.text.length < 3) {
-        setState(() { _openFoodFactsResults = []; });
+      if (_searchController.text.length < 2) {
+        setState(() {
+          _historyResults = [];
+          _usdaResults = [];
+          _openFoodFactsResults = [];
+        });
         return;
       }
       setState(() { _isSearching = true; });
 
+      final historyFuture = _controller.searchUserHistory(_searchController.text);
       final usdaFuture = _controller.searchGenericFoods(_searchController.text);
       final openFoodFactsFuture = _controller.searchProducts(_searchController.text);
 
-      final results = await Future.wait([usdaFuture, openFoodFactsFuture]);
-      final usdaResults = results[0] as List<FoodItem>;
-      final openFoodFactsResults = results[1] as List<Product>;
-    
-      final openFoodFactsItems = openFoodFactsResults.map((product) {
-      // On récupère les calories pour vérifier que le produit est valide
-      final calories = product.nutriments?.getValue(Nutrient.energyKCal, PerSize.oneHundredGrams);
-
-      // On retourne un FoodItem complet
-      return FoodItem(
-        // On utilise les données du 'product' de l'API
-        name: product.productName ?? 'Produit inconnu',
-        caloriesPer100g: calories ?? 0.0,
-        proteinPer100g: product.nutriments?.getValue(Nutrient.proteins, PerSize.oneHundredGrams) ?? 0.0,
-        carbsPer100g: product.nutriments?.getValue(Nutrient.carbohydrates, PerSize.oneHundredGrams) ?? 0.0,
-        fatPer100g: product.nutriments?.getValue(Nutrient.fat, PerSize.oneHundredGrams) ?? 0.0,
-        // On met une quantité par défaut, car c'est un modèle
-        quantity: 100.0,
-      );
-    })
-    // On ne garde que les aliments qui ont bien des données caloriques
-    .where((item) => item.caloriesPer100g > 0) 
-    .toList();
+      final results = await Future.wait([historyFuture, usdaFuture, openFoodFactsFuture]);
 
       if (mounted) {
         setState(() {
-          _usdaResults = results[0] as List<FoodItem>;
-          _openFoodFactsResults = _openFoodFactsResults = results[1] as List<Product>;
+          _historyResults = results[0] as List<FoodItem>;
+          _usdaResults = results[1] as List<FoodItem>;
+          _openFoodFactsResults = results[2] as List<Product>;
           _isSearching = false;
         });
       }
@@ -406,65 +387,43 @@ Widget build(BuildContext context) {
 
 // NOUVELLE MÉTHODE qui construit la liste des résultats de recherche
 Widget _buildSearchResultsList() {
-  final totalItemCount = _usdaResults.length + _openFoodFactsResults.length;
-
-  return ListView.builder(
-    itemCount: totalItemCount,
-    itemBuilder: (context, index) {
-      // Si l'index correspond à un résultat de la base locale/USDA
-      if (index < _usdaResults.length) {
-        final item = _usdaResults[index];
-        return ListTile(
-          leading: Container(
-            width: 56, height: 56,
-            decoration: BoxDecoration(color: Colors.green[50], borderRadius: BorderRadius.circular(8)),
-            child: const Icon(Icons.eco_outlined, color: Colors.green),
-          ),
-          title: Text(item.name ?? 'Aliment générique'),
-          subtitle: Text('${item.caloriesPer100g.toStringAsFixed(0)} kcal pour 100g'),
-          // ON APPELLE DIRECTEMENT LA MÉTHODE QUI GÈRE LES FoodItem
-          onTap: () => _handleFoodSelection(foodItem: item),
-        );
-      } 
-      // Sinon, c'est un résultat de Open Food Facts
-      else {
-        final product = _openFoodFactsResults[index - _usdaResults.length];
-        final imageUrl = product.imageFrontSmallUrl;
-        
-        return ListTile(
-          leading: SizedBox(
-            width: 56, height: 56,
-            child: ClipRRect(
-              borderRadius: BorderRadius.circular(8.0),
-              child: (imageUrl != null && imageUrl.isNotEmpty)
-                  ? Image.network(imageUrl, fit: BoxFit.cover, /*... loading & error builders ...*/)
-                  : Container(
-                      color: Colors.grey[200],
-                      child: const Icon(Icons.fastfood_outlined, color: Colors.grey),
-                    ),
-            ),
-          ),
-          title: Text(product.productName ?? 'Produit sans nom'),
-          subtitle: Text(product.brands ?? 'Marque inconnue'),
-          // ON APPELLE LA MÉTHODE QUI GÈRE LES Product DE L'API
-          onTap: () {
+    return ListView(
+      children: [
+        if (_historyResults.isNotEmpty) ...[
+          const ListTile(title: Text('Vos Habitudes', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.purple))),
+          ..._historyResults.map((item) => ListTile(
+            leading: const Icon(Icons.history, color: Colors.purple),
+            title: Text(item.name ?? ''),
+            onTap: () => _handleFoodSelection(foodItem: item),
+          )),
+          const Divider(),
+        ],
+        if (_usdaResults.isNotEmpty) ...[
+          const ListTile(title: Text('Aliments de Base', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.green))),
+          ..._usdaResults.map((item) => ListTile(
+            leading: const Icon(Icons.eco_outlined, color: Colors.green),
+            title: Text(item.name ?? ''),
+            subtitle: Text('${item.caloriesPer100g.toInt()} kcal pour 100 g'),
+            onTap: () => _handleFoodSelection(foodItem: item),
+          )),
+          const Divider(),
+        ],
+        if (_openFoodFactsResults.isNotEmpty) ...[
+          const ListTile(title: Text('Produits du Commerce', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.blue))),
+          ..._openFoodFactsResults.map((product) {
             final foodItem = convertProductToFoodItem(product);
-            if (foodItem != null) {
-            // On appelle notre nouvelle méthode unifiée en lui passant
-            // à la fois le FoodItem et le Product original pour la recherche de portion
-            _handleFoodSelection(foodItem: foodItem, originalProduct: product);
-            } else {
-              // Gérer le cas où le produit est incomplet
-               ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('Données nutritionnelles manquantes pour ce produit.'))
-              );
-            }
-          },
-        );
-      }
-    },
-  );
-}
+            if (foodItem == null) return const SizedBox.shrink();
+            return ListTile(
+              leading: SizedBox(width: 56, height: 56, child: product.imageFrontSmallUrl != null ? Image.network(product.imageFrontSmallUrl!) : const Icon(Icons.shopping_cart_outlined)),
+              title: Text(foodItem.name ?? ''),
+              subtitle: Text(product.brands ?? 'Marque inconnue'),
+              onTap: () => _handleFoodSelection(foodItem: foodItem, originalProduct: product),
+            );
+          }),
+        ],
+      ],
+    );
+  }
 
 FoodItem? convertProductToFoodItem(Product product) {
   final calories = product.nutriments?.getValue(Nutrient.energyKCal, PerSize.oneHundredGrams);

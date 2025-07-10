@@ -20,6 +20,10 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin, WidgetsBindingObserver {
+  final ScrollController _scrollController = ScrollController();
+  final PageStorageBucket _pageStorageBucket = PageStorageBucket();
+  final PageStorageKey _journalListKey = const PageStorageKey('journalList');
+  
   // --- L'ÉTAT LOCAL EST MAINTENANT MINIMAL ---
   late TabController _tabController;
   int _selectedIndex = 0;
@@ -43,6 +47,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin, 
   @override
   void dispose() {
     _tabController.dispose();
+    _scrollController.dispose();
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }
@@ -82,6 +87,8 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin, 
       builder: (context, controller, child) {
         final List<Widget> pages = [
           JournalView(
+            key: _journalListKey, 
+            scrollController: _scrollController,
             totalCalories: controller.totalCalories,
             goalCalories: controller.goalCalories,
             totalCarbs: controller.totalCarbs,
@@ -107,7 +114,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin, 
           // On appelle le premier dialogue pour choisir le repas
               HomeDialogs.showAddFavoriteToMealDialog(context, food, (mealType) {
                 // Une fois le repas choisi, on appelle le dialogue pour demander la quantité
-                HomeDialogs.showQuantityDialog(context, food, mealType, (itemToLog) {
+                HomeDialogs.showQuantityDialog(context, food, mealType, _selectedDate, (itemToLog) {
                   // Une fois la quantité validée, on ajoute l'aliment au journal
                   controller.submitFood(itemToLog).then((_) => controller.refreshData(_selectedDate));
                 });
@@ -141,7 +148,10 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin, 
           appBar: _buildAppBar(context, controller.userName),
           body: controller.isLoading
               ? const Center(child: CircularProgressIndicator())
-              : IndexedStack(index: _selectedIndex, children: pages),
+              : PageStorage(
+                  bucket: _pageStorageBucket,
+                  child: IndexedStack(index: _selectedIndex, children: pages),
+                ),
           bottomNavigationBar: BottomNavigationBar(
             items: const <BottomNavigationBarItem>[
               BottomNavigationBarItem(icon: Icon(Icons.menu_book_outlined), activeIcon: Icon(Icons.menu_book), label: 'Journal'),
@@ -296,31 +306,105 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin, 
 }
 
   Widget _buildMealList(BuildContext context, List<FoodItem> mealItems, HomeController controller) {
-    if (mealItems.isEmpty) {
-      return const EmptyStateWidget(
+  if (mealItems.isEmpty) {
+    return const Padding(
+      padding: EdgeInsets.symmetric(vertical: 48.0),
+      child: EmptyStateWidget(
         imagePath: 'assets/images/undraw_chef.svg',
         title: 'Ce repas est encore vide',
         subtitle: 'Appuyez sur le bouton "+" pour ajouter votre premier aliment.',
-      );
-    }
-    return ListView.builder(
-      padding: const EdgeInsets.symmetric(horizontal: 8.0),
-      itemCount: mealItems.length,
-      itemBuilder: (context, index) {
-        final item = mealItems[index];
-        return ListTile(
-          title: Text(item.name ?? 'Aliment sans nom', style: Theme.of(context).textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w600)),
-          subtitle: Text('${item.quantity?.toStringAsFixed(0) ?? '0'} g  •  G: ${item.totalCarbs.toStringAsFixed(0)} g P: ${item.totalProtein.toStringAsFixed(0)} g L: ${item.totalFat.toStringAsFixed(0)} g', style: Theme.of(context).textTheme.bodySmall),
-          trailing: Text('${item.totalCalories.toStringAsFixed(0)} kcal', style: Theme.of(context).textTheme.bodySmall?.copyWith(fontWeight: FontWeight.bold, color: Theme.of(context).colorScheme.primary)),
+      ),
+    );
+  }
+
+  // ON REMPLACE LE LISTVIEW.BUILDER PAR UN SINGLECHILDSCROLLVIEW + WRAP
+  return ListView.builder(
+    padding: const EdgeInsets.all(8.0),
+    itemCount: mealItems.length,
+    itemBuilder: (context, index) {
+      final item = mealItems[index];
+
+      // Chaque aliment est maintenant une Card cliquable et bien structurée
+      return Card(
+        margin: const EdgeInsets.symmetric(vertical: 6.0),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(12.0),
           onTap: () => HomeDialogs.showFoodItemActionsMenu(
             context,
             item,
             onDelete: () => controller.deleteFoodLogItem(item.id!).then((_) => controller.refreshData(_selectedDate)),
-            onAddToFavorites: () => controller.addFoodItemToFavorites(item),
+            onAddToFavorites: () => controller.addFoodItemToFavorites(item).then((_) => controller.refreshData(_selectedDate)),
             onEdit: (newQuantity) => controller.updateFoodLogItemQuantity(item.id!, newQuantity).then((_) => controller.refreshData(_selectedDate)),
           ),
-        ).animate().fadeIn(duration: 400.ms).slideY(begin: 0.5);
-      },
-    );
-  }
+          child: Padding(
+            padding: const EdgeInsets.all(12.0),
+            child: Row(
+              children: [
+                // Colonne principale avec Nom, Quantité et Macros
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        item.name ?? 'Aliment sans nom',
+                        style: Theme.of(context).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.bold),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        '${item.quantity?.toStringAsFixed(0) ?? '0'} g',
+                        style: Theme.of(context).textTheme.bodySmall,
+                      ),
+                      const SizedBox(height: 8),
+                      // Affichage clair des 3 macros
+                      Row(
+                        children: [
+                          _buildMacroChip('G ', item.totalCarbs, Colors.blue),
+                          const SizedBox(width: 8),
+                          _buildMacroChip('P ', item.totalProtein, Colors.red),
+                          const SizedBox(width: 8),
+                          _buildMacroChip('L ', item.totalFat, Colors.orange),
+                        ],
+                      )
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 16),
+                // Les calories, bien visibles à droite
+                Text(
+                  '${item.totalCalories.toStringAsFixed(0)}\nkcal',
+                  textAlign: TextAlign.center,
+                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.bold,
+                    color: Theme.of(context).colorScheme.primary,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+    },
+  );
 }
+
+Widget _buildMacroChip(String label, double value, Color color) {
+  return Container(
+    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+    decoration: BoxDecoration(
+      color: color.withOpacity(0.1),
+      borderRadius: BorderRadius.circular(20),
+    ),
+    child: Text(
+      '$label: ${value.toStringAsFixed(0)} g',
+      style: TextStyle(
+        color: color,
+        fontWeight: FontWeight.bold,
+        fontSize: 10,
+      ),
+    ),
+  );
+}
+}
+
+
+

@@ -1,37 +1,98 @@
 // lib/widgets/home/summary_card.dart
 
 import 'package:flutter/material.dart';
+import 'package:google_fonts/google_fonts.dart';
 import 'package:percent_indicator/percent_indicator.dart';
-import 'package:flutter_animate/flutter_animate.dart';
-import 'package:animated_digit/animated_digit.dart';
+
+// --- WIDGET D'ANIMATION DE NOMBRES, AUTONOME ET ROBUSTE ---
+class AnimatedCountUp extends StatefulWidget {
+  final double end;
+  final TextStyle? style;
+  final String suffix;
+  final Duration duration;
+
+  const AnimatedCountUp({
+    super.key,
+    required this.end,
+    this.style,
+    this.suffix = '',
+    this.duration = const Duration(milliseconds: 900),
+  });
+
+  @override
+  State<AnimatedCountUp> createState() => _AnimatedCountUpState();
+}
+
+class _AnimatedCountUpState extends State<AnimatedCountUp> with SingleTickerProviderStateMixin {
+  late AnimationController _controller;
+  late Animation<double> _animation;
+  double _currentBeginValue = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = AnimationController(duration: widget.duration, vsync: this);
+    _animation = Tween<double>(begin: _currentBeginValue, end: widget.end).animate(
+      CurvedAnimation(parent: _controller, curve: Curves.easeOut),
+    );
+    _controller.forward();
+  }
+
+  @override
+  void didUpdateWidget(AnimatedCountUp oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // Si la valeur cible change, on lance une nouvelle animation
+    if (widget.end != oldWidget.end) {
+      _currentBeginValue = oldWidget.end; // On part de l'ancienne valeur
+      _animation = Tween<double>(
+        begin: _currentBeginValue,
+        end: widget.end,
+      ).animate(
+        CurvedAnimation(parent: _controller, curve: Curves.easeOut),
+      );
+      _controller.reset();
+      _controller.forward();
+    }
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: _animation,
+      builder: (context, child) {
+        return Text(
+          '${_animation.value.toStringAsFixed(0)}${widget.suffix}',
+          style: widget.style,
+        );
+      },
+    );
+  }
+}
 
 
-// lib/widgets/home/summary_card.dart
-
-// --- WIDGET PRIVÉ POUR LA JAUGE DE CALORIES ---
+// --- WIDGET PRIVÉ POUR LES CALORIES, MAINTENANT UN STATELESSWIDGET SIMPLE ---
 class _CalorieIndicator extends StatelessWidget {
   final double radius;
   final double total;
   final double goal;
-  final Color textColor;
 
   const _CalorieIndicator({
     required this.radius,
     required this.total,
     required this.goal,
-    required this.textColor, // <-- AJOUTER AU CONSTRUCTEUR
   });
 
   @override
   Widget build(BuildContext context) {
     final textTheme = Theme.of(context).textTheme;
-    // On récupère les styles depuis le thème global
-    final headlineStyle = textTheme.displaySmall?.copyWith(fontWeight: FontWeight.w600, color: textColor,);
-    final captionStyle = textTheme.bodySmall;
-
-    final bool isOverGoal = total > goal;
-    final Color progressColor = isOverGoal ? Colors.orange.shade700 : Colors.green;
-
+    final isOverGoal = total > goal;
+    final progressColor = isOverGoal ? Colors.orange.shade700 : Colors.green;
     final remainingCalories = (goal - total).clamp(0, goal);
 
     return Column(
@@ -39,124 +100,109 @@ class _CalorieIndicator extends StatelessWidget {
         CircularPercentIndicator(
           radius: radius,
           lineWidth: 12.0,
-          percent: (goal > 0.0 ? total / goal : 0.0).clamp(0.0, 1.0),
+          percent: (goal > 0 ? total / goal : 0).clamp(0.0, 1.0) as double,
           center: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              AnimatedDigitWidget(
-              value: total, // La valeur finale à afficher
-              duration: const Duration(milliseconds: 1200),
-              textStyle: headlineStyle,
+              AnimatedCountUp(
+                end: total,
+                style: textTheme.displaySmall?.copyWith(fontWeight: FontWeight.w600),
               ),
-              Text('KCAL CONSOMMÉES', style: captionStyle),
+              Text('KCAL CONSOMMÉES', style: textTheme.bodySmall?.copyWith(letterSpacing: 0.5)),
             ],
           ),
           progressColor: progressColor,
-          backgroundColor: Colors.green.withOpacity(0.2),
+          backgroundColor: progressColor.withOpacity(0.2),
           circularStrokeCap: CircularStrokeCap.round,
           animation: true,
           animateFromLastPercent: true,
           animationDuration: 1200,
-          curve: Curves.easeInOutCubic,
         ),
         const SizedBox(height: 8.0),
-        Text(
-          '${remainingCalories.toStringAsFixed(0)} restantes', // Le nombre à animer                   
-          // On peut même ajouter un espace insécable pour un meilleur affichage
-          style: textTheme.bodyLarge?.copyWith(fontWeight: FontWeight.w500),
+        AnimatedCountUp(
+          end: isOverGoal ? (total - goal).toDouble() : remainingCalories.toDouble(),
+          suffix: isOverGoal ? ' de dépassement' : ' restantes',
+          style: textTheme.bodyLarge?.copyWith(
+            fontWeight: FontWeight.w500,
+            color: isOverGoal ? Colors.orange.shade800 : null,
+          ),
         ),
       ],
     );
   }
 }
 
-// --- WIDGET PRIVÉ POUR LES MACROS ---
+// --- WIDGET PRIVÉ POUR LES MACROS, AUSSI UN STATELESSWIDGET SIMPLE ---
 class _MacroIndicator extends StatelessWidget {
+  final double radius;
   final IconData iconData;
   final String label;
   final double value;
   final double max;
   final Color color;
-  final Color textColor;
 
-  // On n'a plus besoin du paramètre 'radius'
   const _MacroIndicator({
+    required this.radius,
     required this.iconData,
     required this.label,
     required this.value,
     required this.max,
     required this.color,
-    required this.textColor,
   });
 
   @override
   Widget build(BuildContext context) {
     final textTheme = Theme.of(context).textTheme;
-    final bool isOverGoal = value > max;
-    final Color progressColor = isOverGoal ? color.withAlpha((1 * 255).toInt()) : color;
-    
-    // FittedBox va automatiquement réduire la taille de la Column
-    // pour qu'elle rentre dans l'espace fourni par le parent (Expanded).
-    return FittedBox(
-      fit: BoxFit.scaleDown,
-      child: Column(
-        children: [
-          Stack(
-            alignment: Alignment.center,
-            children: [
-              CircularPercentIndicator(
-                // On lui donne une taille de base fixe et assez grande.
-                // FittedBox s'occupera de la réduire si nécessaire.
-                radius: 50.0,
-                lineWidth: 9.0,
-                percent: (max > 0.0 ? value / max : 0.0).clamp(0.0, 1.0),
-                backgroundColor: color.withAlpha(50),
-                progressColor: progressColor,
-                circularStrokeCap: CircularStrokeCap.round,
-                animation: true,
-                animateFromLastPercent: true,
-                animationDuration: 800,
-              ),
-              Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Icon(iconData, color: color, size: 22), // Taille fixe
-                  const SizedBox(height: 4),
-                  AnimatedDigitWidget(
-                    value: value,
-                    duration: const Duration(milliseconds: 800),
-                    textStyle: textTheme.bodySmall?.copyWith(
-                      fontWeight: FontWeight.w600, color: textColor,
-                    ),
-                    // On s'assure qu'il n'y a pas de décimales
-                    fractionDigits: 0, 
-                  ),
-                  // 2. Le texte statique
-                  Text(
-                    ' / ${max.toStringAsFixed(0)} g',
+    final isOverGoal = value > max;
+    final progressColor = isOverGoal ? color.withOpacity(0.8) : color;
+
+    return Column(
+      children: [
+        Stack(
+          alignment: Alignment.center,
+          children: [
+            CircularPercentIndicator(
+              radius: radius,
+              lineWidth: 9.0,
+              percent: (max > 0 ? value / max : 0).clamp(0.0, 1.0) as double,
+              backgroundColor: color.withAlpha(50),
+              progressColor: progressColor,
+              circularStrokeCap: CircularStrokeCap.round,
+              animation: true,
+              animateFromLastPercent: true,
+              animationDuration: 800,
+            ),
+            Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(iconData, color: progressColor, size: radius * 0.45),
+                const SizedBox(height: 4),
+                AnimatedCountUp(
+                  end: value,
+                  suffix: ' g',
+                  style: textTheme.bodySmall?.copyWith(fontWeight: FontWeight.w600),
+                ),
+                Text(
+                  ' / ${max.toStringAsFixed(0)} g',
                     style: textTheme.bodySmall?.copyWith(
                       color: Colors.grey[600], // Un style plus léger pour l'objectif
                     ),
-                  ),
-                ],
-              ),
-            ],
-          ),
-          const SizedBox(height: 8),
-          Text(
-            label,
-            style: Theme.of(context).textTheme.labelLarge?.copyWith(
-                  color: color,
-                  fontWeight: FontWeight.bold,
                 ),
-          ),
-        ],
-      ),
+              ],
+            ),
+          ],
+        ),
+        const SizedBox(height: 8),
+        Text(
+          label,
+          style: textTheme.labelLarge?.copyWith(color: progressColor, fontWeight: FontWeight.bold),
+        ),
+      ],
     );
   }
 }
 
-// LE WIDGET SummaryCard PRINCIPAL, SIMPLIFIÉ
+// --- WIDGET PUBLIC PRINCIPAL, RESTE STATELESS CAR IL NE FAIT QU'ASSEMBLER ---
 class SummaryCard extends StatelessWidget {
   final double totalCalories;
   final double goalCalories;
@@ -183,18 +229,10 @@ class SummaryCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final isDarkMode = Theme.of(context).brightness == Brightness.dark;
-    final textColor = isDarkMode ? Colors.white.withOpacity(0.87) : Colors.grey[800];
-    // ON REMPLACE LA Card PAR UN CONTAINER POUR UN CONTRÔLE TOTAL DU STYLE
-    return 
-    Container(
-      // La décoration nous permet de définir la couleur, les bordures, l'ombre, etc.
+    return Container(
       decoration: BoxDecoration(
-        color: Theme.of(context).colorScheme.surface, // Le blanc de notre thème
-        borderRadius: const BorderRadius.vertical(
-          bottom: Radius.circular(24.0), // On arrondit uniquement les coins du bas
-        ),
-        // On ajoute une ombre personnalisée et plus douce
+        color: Theme.of(context).colorScheme.surface,
+        borderRadius: const BorderRadius.vertical(bottom: Radius.circular(24.0)),
         boxShadow: [
           BoxShadow(
             color: Colors.black.withOpacity(0.04),
@@ -204,57 +242,32 @@ class SummaryCard extends StatelessWidget {
         ],
       ),
       child: Padding(
-        padding: const EdgeInsets.fromLTRB(16, 20, 16, 24),
+        padding: const EdgeInsets.fromLTRB(16, 20, 16, 12),
         child: Column(
           children: [
             _CalorieIndicator(
               radius: gaugeRadiusCalories,
               total: totalCalories,
               goal: goalCalories,
-              textColor: textColor!, // <-- ON PASSE LA COULEUR
             ),
             const SizedBox(height: 24),
-            // LA NOUVELLE ROW, QUI UTILISE EXPANDED
-            Row(
-              children: [
-                Expanded(
-                  child: _MacroIndicator(
-                    label: 'Glucides',
-                    iconData: Icons.local_fire_department_outlined,
-                    value: totalCarbs,
-                    max: goalCarbs,
-                    color: Colors.blue,
-                    textColor: textColor,
-                  ),
-                ),
-                const SizedBox(width: 8), // Espaceur entre les jauges
-                Expanded(
-                  child: _MacroIndicator(
-                    label: 'Protéines',
-                    iconData: Icons.fitness_center_outlined,
-                    value: totalProtein,
-                    max: goalProtein,
-                    color: Colors.red,
-                    textColor: textColor,
-                  ),
-                ),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: _MacroIndicator(
-                    label: 'Lipides',
-                    iconData: Icons.water_drop_outlined,
-                    value: totalFat,
-                    max: goalFat,
-                    color: Colors.orange,
-                    textColor: textColor,
-                  ),
-                ),
-              ],
+            LayoutBuilder(
+              builder: (context, constraints) {
+                final double gaugeRadius = (constraints.maxWidth / 3) / 2.3;
+                return Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceAround,
+                  children: [
+                    _MacroIndicator(label: 'Glucides', radius: gaugeRadius, iconData: Icons.local_fire_department_outlined, value: totalCarbs, max: goalCarbs, color: Colors.blue),
+                    _MacroIndicator(label: 'Protéines', radius: gaugeRadius, iconData: Icons.fitness_center_outlined, value: totalProtein, max: goalProtein, color: Colors.red),
+                    _MacroIndicator(label: 'Lipides', radius: gaugeRadius, iconData: Icons.water_drop_outlined, value: totalFat, max: goalFat, color: Colors.orange),
+                  ],
+                );
+              },
             ),
+            
           ],
         ),
       ),
     );
   }
 }
-

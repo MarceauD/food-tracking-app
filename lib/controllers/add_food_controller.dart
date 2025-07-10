@@ -30,7 +30,7 @@ class AddFoodController {
   final searchLimit = 10;
   
   // Ajoute un aliment au journal du jour
-  Future<void> submitFood(FoodItem item) async {
+  Future<void> submitFood(FoodItem item, DateTime date) async {
     await DatabaseHelper.instance.createFoodLog(item);
   }
 
@@ -146,6 +146,26 @@ class AddFoodController {
     return portions;
   }
 
+  String _formatUsdaName(String rawTranslatedName) {
+    // On met tout en minuscule pour commencer
+    var name = rawTranslatedName.toLowerCase();
+    
+    // On sépare le nom principal des descriptions
+    var parts = name.split(',');
+    
+    // Le nom principal est le premier élément, on met une majuscule
+    String mainName = parts[0].trim();
+    mainName = mainName.isNotEmpty ? mainName[0].toUpperCase() + mainName.substring(1) : '';
+
+    // Le reste, ce sont les adjectifs
+    if (parts.length > 1) {
+      String details = parts.sublist(1).join(', ').trim();
+      // On met les détails entre parenthèses
+      return '$mainName ($details)';
+    }
+
+    return mainName;
+  }
 
   Future<void> saveUserPortion(String foodName, String portionName, double weight) async {
     await DatabaseHelper.instance.saveUserPortion(foodName, portionName, weight);
@@ -181,6 +201,7 @@ class AddFoodController {
         
         // On traduit le nom du produit en français
         final translatedName = await _translator.translate(englishName, from: 'en', to: 'fr');
+        final formattedName = _formatUsdaName(translatedName.text);
 
         final List nutrients = foodData['foodNutrients'] ?? [];
         double getNutrientValue(int id) => (nutrients.firstWhere((n) => n['nutrientId'] == id, orElse: () => {'value': 0.0})['value'] as num).toDouble();
@@ -188,7 +209,7 @@ class AddFoodController {
         final calories = getNutrientValue(1008);
         if (calories <= 0) return null; // On ignore les aliments sans calories
         return FoodItem(
-          name: translatedName.text, // On utilise le nom traduit
+          name: formattedName, // On utilise le nom traduit
           caloriesPer100g: calories,
           proteinPer100g: getNutrientValue(1003),
           carbsPer100g: getNutrientValue(1005),
@@ -297,5 +318,10 @@ class AddFoodController {
       print("Erreur réseau ou API : $e");
       return ProductFetchResult(status: ProductResultStatus.networkError);
     }
+  }
+
+  Future<List<FoodItem>> searchUserHistory(String query) async {
+    if (query.length < 2) return [];
+    return await DatabaseHelper.instance.searchUserHistory(query);
   }
 }

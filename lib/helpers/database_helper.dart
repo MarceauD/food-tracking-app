@@ -268,7 +268,7 @@ class DatabaseHelper {
     final db = await instance.database;
     final id = await db.insert('food_log', item.toMap());
 
-    return item.copyWith(); // On pourrait retourner avec l'ID mais pas essentiel ici
+    return item;// On pourrait retourner avec l'ID mais pas essentiel ici
   }
 
   // Vide toute la table des favoris
@@ -310,9 +310,15 @@ class DatabaseHelper {
     return await db.delete('food_log', where: 'id = ?', whereArgs: [id]);
   }
 
-  Future<int> clearFoodLog() async {
+  Future<int> clearFoodLog(DateTime date) async {
       final db = await instance.database;
-      return await db.delete('food_log');
+    final dateString = date.toIso8601String().substring(0, 10);
+    
+    return await db.delete(
+      'food_log',
+      where: 'date LIKE ?',
+      whereArgs: ['$dateString%'],
+    );
   }
 
   Future<int> updateFoodLogQuantity(int id, double newQuantity) async {
@@ -503,6 +509,20 @@ class DatabaseHelper {
       savedMeals.add(SavedMeal(id: mealId, name: mealName, items: items));
     }
     return savedMeals;
+  }
+
+  Future<List<FoodItem>> searchUserHistory(String query) async {
+    final db = await instance.database;
+    final res = await db.rawQuery('''
+      SELECT *, COUNT(name) as frequency
+      FROM food_log
+      WHERE name LIKE ?
+      GROUP BY name
+      ORDER BY frequency DESC
+      LIMIT 5
+    ''', ['%$query%']);
+
+    return res.isNotEmpty ? res.map((json) => FoodItem.fromMap(json)).toList() : [];
   }
 
   Future<int> deleteSavedMeal(int id) async {

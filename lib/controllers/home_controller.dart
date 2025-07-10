@@ -16,6 +16,7 @@ import '../models/saved_meals.dart';
 import '../models/user_profile.dart';
 
 class HomeController with ChangeNotifier {
+  final ScrollController _scrollController = ScrollController(); // <-- AJOUTEZ CETTE LIGNE
   // --- PROPRIÉTÉS D'ÉTAT (LES DONNÉES DE L'UI) ---
   List<FoodItem> foodItems = [];
   List<FoodItem> favoriteFoods = [];
@@ -39,10 +40,17 @@ class HomeController with ChangeNotifier {
 
   // --- MÉTHODES DE GESTION DES DONNÉES ---
 
+  @override
+  void dispose() {
+    _scrollController.dispose(); // N'oubliez pas de le disposer
+    super.dispose();
+  }
+  
   Future<void> initializeApp(DateTime selectedDate) async {
     isLoading = true;
     notifyListeners();
     
+    // Le premier chargement est complet
     await checkAndResetLogIfNeeded();
     await loadProfile();
     await refreshData(selectedDate);
@@ -52,25 +60,20 @@ class HomeController with ChangeNotifier {
   }
 
   Future<void> refreshData(DateTime selectedDate) async {
-    isLoading = true;
-    notifyListeners();
-
-    final goalsData = await _loadGoals();
-    favoriteFoods = await DatabaseHelper.instance.getFavorites();
-    savedMeals = await DatabaseHelper.instance.getSavedMeals();
-    foodItems = await DatabaseHelper.instance.getFoodLogForDate(selectedDate);
-    
-    goalCalories = goalsData['calories']!;
-    goalCarbs = goalsData['carbs']!;
-    goalProtein = goalsData['protein']!;
-    goalFat = goalsData['fat']!;
-
-    await updateSummaryForDate(selectedDate);
-    _updateTip();
-
-    isLoading = false;
-    notifyListeners();
+  // On ne met plus 'isLoading = true', pour éviter de faire clignoter l'UI
+  
+  // On charge uniquement les données qui changent
+  foodItems = await DatabaseHelper.instance.getFoodLogForDate(selectedDate);
+  favoriteFoods = await DatabaseHelper.instance.getFavorites();
+  savedMeals = await DatabaseHelper.instance.getSavedMeals();
+  
+  _updateTip(); // On met à jour le conseil
+  notifyListeners(); // On notifie l'UI du changement
   }
+
+  
+
+  
 
   Future<void> addSavedMealToLog(SavedMeal savedMeal, MealType mealType, DateTime date) async {
     for (final itemTemplate in savedMeal.items) {
@@ -105,7 +108,7 @@ class HomeController with ChangeNotifier {
       if (lastDayLog.isNotEmpty) {
         await updateSummaryForDate(lastVisitDate, logToUpdate: lastDayLog);
       }
-      await DatabaseHelper.instance.clearFoodLog();
+
       await prefs.setString('lastVisitDate', today.toIso8601String());
     }
   }

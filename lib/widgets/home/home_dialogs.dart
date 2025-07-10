@@ -219,13 +219,19 @@ class HomeDialogs {
   }
 
   // --- NOUVELLE MÉTHODE POUR LA BOÎTE DE DIALOGUE DE QUANTITÉ ---
-  static Future<void> showQuantityDialog(BuildContext context, FoodItem favorite, MealType meal, Function(FoodItem) onConfirm) async {
+  static Future<void> showQuantityDialog(
+    BuildContext context,
+    FoodItem favorite,
+    MealType meal,
+    DateTime date,
+    Function(FoodItem) onConfirm,
+  ) async {
     final quantityController = TextEditingController(text: '100');
     return showDialog(
       context: context,
       builder: (context) {
         return AlertDialog(
-          title: Text('Quantité pour "${favorite.name}"'),
+          title: Text('Quelle quantité pour "${favorite.name}" ?'),
           content: TextField(
             controller: quantityController,
             decoration: const InputDecoration(labelText: 'Quantité en grammes'),
@@ -239,10 +245,18 @@ class HomeDialogs {
               onPressed: () {
                 final quantity = double.tryParse(quantityController.text);
                 if (quantity != null && quantity > 0) {
+                  // --- LA LOGIQUE CLÉ EST ICI ---
+                  // On crée une nouvelle instance de FoodItem à partir du favori,
+                  // mais en spécifiant une nouvelle date, un nouveau type de repas,
+                  // et en forçant l'ID à null pour que la BDD en crée un nouveau.
                   final itemToLog = favorite.copyWith(
                     quantity: quantity,
                     mealType: meal,
+                    date: date, // On assigne la date du jour
+                    forceIdToNull: true,   // On s'assure que c'est bien une nouvelle entrée
                   );
+                  // --- FIN DE LA LOGIQUE CLÉ ---
+                  
                   onConfirm(itemToLog);
                   Navigator.pop(context);
                 }
@@ -332,8 +346,9 @@ class HomeDialogs {
                 title: const Text('Modifier la quantité'),
                 onTap: () {
                   Navigator.pop(context);
-                  // On appelle notre nouvelle méthode de dialogue
+
                   showEditQuantityDialog(context, item, onEdit);
+                  // On appelle notre nouvelle méthode de dialogue
                 },
               ),
               ListTile(
