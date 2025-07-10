@@ -11,6 +11,9 @@ import '../models/food_item.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:flutter_animate/flutter_animate.dart';
+import '../widgets/home/home_dialogs.dart';
+import 'package:provider/provider.dart';
+
 
 
 
@@ -135,46 +138,75 @@ class StatsScreenState extends State<StatsScreen> {
     }
   }
 
-  Future<void> _shareDaySummary(BuildContext context, DailySummary summary) async {  
-    // On utilise le package 'share_plus'
-    final String report = await _controller.generateDailyReport(summary);
-    final userProfile = await DatabaseHelper.instance.getUserProfile();
-    final userName = userProfile?.name ?? 'Utilisateur'; 
-
-    final String subject = 'Bilan du ${DateFormat('d/M/y').format(summary.date)} - $userName';
-    // On partage le texte généré
-    _showShareOptions(reportText: report, subject: subject);
-  }
 
   
   Future<void> _shareWeekSummary() async {
-  if (_summaries.isEmpty) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Aucune donnée à partager.')),
+    // On s'assure que le contexte est toujours valide
+    if (!mounted) return;
+    
+    // On récupère le HomeController pour accéder aux méthodes de rapport
+    final controller = context.read<HomeController>();
+    
+    // On vérifie s'il y a des données à partager
+    if (controller.summaries.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Aucune donnée à partager pour la semaine.')),
+      );
+      return;
+    }
+
+    // 1. On affiche le menu de sélection et on attend le choix de l'utilisateur
+    final selectedFormat = await HomeDialogs.showExportOptionsDialog(context);
+
+    // Si l'utilisateur a fermé le menu, on ne fait rien
+    if (selectedFormat == null) return;
+
+    // On affiche un indicateur de chargement pendant la génération
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => const Center(child: CircularProgressIndicator()),
     );
-    return;
+
+    try {
+      // 2. On agit en fonction du choix
+      switch (selectedFormat) {
+        case ExportFormat.text:
+          final report = await controller.generateWeeklyTextReport();
+          // On ferme le dialogue de chargement avant de partager
+          Navigator.pop(context); 
+          await Share.share(report, subject: 'Bilan Nutritionnel Détaillé - ${controller.userName}');
+          break;
+        
+        case ExportFormat.html:
+          final report = await controller.generateWeeklyHtmlReport();
+          Navigator.pop(context);
+          // Le package Share gère bien le contenu HTML dans le corps du mail
+          await Share.share(report, subject: 'Bilan Nutritionnel Détaillé - ${controller.userName}');
+          break;
+
+        case ExportFormat.csv:
+          final filePath = await controller.generateWeeklyCsvReport();
+          Navigator.pop(context);
+          if (filePath.isNotEmpty) {
+            await Share.shareXFiles(
+              [XFile(filePath)],
+              subject: 'Bilan Nutritionnel (CSV) - ${controller.userName}'
+            );
+          } else {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('Impossible de générer le fichier CSV.')),
+            );
+          }
+          break;
+      }
+    } finally {
+      // S'assure que le dialogue de chargement est bien fermé, même en cas d'erreur
+      if (Navigator.of(context).canPop()) {
+        Navigator.pop(context);
+      }
+    }
   }
-
-  final userProfile = await DatabaseHelper.instance.getUserProfile();
-  final userName = userProfile?.name ?? 'Utilisateur'; 
-
-  final buffer = StringBuffer();
-  buffer.writeln("Bilan Nutritionnel de la Semaine - $userName");
-  buffer.writeln("=================================");
-
-  for (final summary in _summaries) {
-    buffer.writeln();
-    // On appelle notre fonction d'aide pour générer le rapport de chaque jour
-    final dailyReport = await _controller.generateDailyReport(summary);
-    buffer.writeln(dailyReport);
-    buffer.writeln("--------------------");
-  }
-
-  final String subject = 'Bilan Nutritionnel de la Semaine - $userName';
-
-  // ON APPELLE NOTRE NOUVELLE MÉTHODE
-  _showShareOptions(reportText: buffer.toString(), subject: subject);
-}
   
    @override
   Widget build(BuildContext context) {
@@ -240,12 +272,6 @@ class StatsScreenState extends State<StatsScreen> {
                                     dayFormat.format(summary.date),
                                     style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold),
                                   ),
-                                  if (_coachingEnabled)
-                                  IconButton(
-                                    icon: const Icon(Icons.share_outlined),
-                                    onPressed: () => _shareDaySummary(context, summary),
-                                    tooltip: 'Partager le bilan',
-                                    ),
                                   if (hasAllMeals)
                                     Icon(
                                       isDayComplete ? Icons.check_circle : Icons.cancel,

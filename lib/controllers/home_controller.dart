@@ -14,6 +14,9 @@ import '../models/food_item.dart';
 import '../models/meal_type.dart';
 import '../models/saved_meals.dart';
 import '../models/user_profile.dart';
+import 'package:csv/csv.dart';
+import 'package:path_provider/path_provider.dart';
+import 'dart:io';
 
 class HomeController with ChangeNotifier {
   final ScrollController _scrollController = ScrollController(); // <-- AJOUTEZ CETTE LIGNE
@@ -21,6 +24,7 @@ class HomeController with ChangeNotifier {
   List<FoodItem> foodItems = [];
   List<FoodItem> favoriteFoods = [];
   List<SavedMeal> savedMeals = [];
+  List<DailySummary> summaries = [];
   UserProfile? userProfile;
   String currentTip = "";
   String userName = 'Utilisateur';
@@ -66,16 +70,13 @@ class HomeController with ChangeNotifier {
   foodItems = await DatabaseHelper.instance.getFoodLogForDate(selectedDate);
   favoriteFoods = await DatabaseHelper.instance.getFavorites();
   savedMeals = await DatabaseHelper.instance.getSavedMeals();
+  summaries = await DatabaseHelper.instance.getRecentSummaries(7);
   
   _updateTip(); // On met à jour le conseil
   notifyListeners(); // On notifie l'UI du changement
   }
 
-  
-
-  
-
-  Future<void> addSavedMealToLog(SavedMeal savedMeal, MealType mealType, DateTime date) async {
+   Future<void> addSavedMealToLog(SavedMeal savedMeal, MealType mealType, DateTime date) async {
     for (final itemTemplate in savedMeal.items) {
       final itemToLog = itemTemplate.copyWith(
         date: date,
@@ -254,51 +255,119 @@ class HomeController with ChangeNotifier {
     }
   }
 
-    Future<String> generateDailyReport(DailySummary summary) async {
-    final dayFormat = DateFormat('EEEE d MMMM yyyy', 'fr_FR');
+   Future<String> generateWeeklyHtmlReport() async {
     final buffer = StringBuffer();
+    final dayFormat = DateFormat('EEEE d MMMM', 'fr_FR');
 
-    final userProfile = await DatabaseHelper.instance.getUserProfile();
-    final goals = userProfile != null ? NutritionCalculator.calculateGoals(userProfile, objective: userProfile.objective.name) : <String, double>{};
-    final goalCarbs = goals['carbs'] ?? 0;
-    final goalProtein = goals['protein'] ?? 0;
-    final goalFat = goals['fat'] ?? 0;
+    // En-tête et style CSS pour un email propre
+    buffer.writeln('<html><head><style>');
+    buffer.writeln('body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen-Sans, Ubuntu, Cantarell, "Helvetica Neue", sans-serif; color: #333; }');
+    buffer.writeln('.day-container { border: 1px solid #e0e0e0; border-radius: 8px; margin-bottom: 20px; padding: 16px; background-color: #f9f9f9; }');
+    buffer.writeln('h2, h3 { color: #1a1a1a; } h4 { margin-bottom: 5px; }');
+    buffer.writeln('.meal-title { font-weight: bold; margin-top: 15px; border-bottom: 1px solid #eee; padding-bottom: 5px; }');
+    buffer.writeln('ul { list-style-type: none; padding-left: 0; } li { padding: 5px 0; }');
+    buffer.writeln('</style></head><body>');
+    buffer.writeln('<h2>Bilan Nutritionnel Détaillé</h2><h3>Client: $userName</h3>');
 
-    // On récupère le détail des aliments pour cette journée
-    buffer.writeln("🗓️ Date : ${dayFormat.format(summary.date)}");
-    buffer.writeln("======================================");
-    final dailyFoods = await DatabaseHelper.instance.getFoodLogForDate(summary.date);
+    final today = DateTime.now();
+    for (int i = 6; i >= 0; i--) {
+      final date = today.subtract(Duration(days: i));
+      final dailyLogByMeal = await DatabaseHelper.instance.getFoodLogForDate(date).then(groupFoodItemsByMeal);
 
-    final goalStatus = summary.totalCalories <= summary.goalCalories 
-      ? "Objectif Atteint ✔️" 
-      : "Objectif Dépassé ❌";
+      buffer.writeln('<div class="day-container">');
+      buffer.writeln('<h4>${dayFormat.format(date)}</h4>');
 
-  buffer.writeln("📊 RÉSUMÉ");
-  buffer.writeln("   Calories : ${summary.totalCalories.toStringAsFixed(0)} / ${summary.goalCalories.toStringAsFixed(0)} kcal ($goalStatus)");
-  buffer.writeln("   Macros   : Glucides 🔥 : ${summary.totalCarbs.toStringAsFixed(0)} / ${goalCarbs.toStringAsFixed(0)} g | Protéines 💪 : ${summary.totalProtein.toStringAsFixed(0)} / ${goalProtein.toStringAsFixed(0)} g | Lipides 💧 : ${summary.totalFat.toStringAsFixed(0)} / ${goalFat.toStringAsFixed(0)}g ");  
-  buffer.writeln(); // Ligne vide
+      if (dailyLogByMeal.values.every((list) => list.isEmpty)) {
+        buffer.writeln('<p><i>Aucun aliment enregistré.</i></p>');
+      } else {
+        for (final mealEntry in dailyLogByMeal.entries) {
+          if (mealEntry.value.isNotEmpty) {
+            final mealTotal = mealEntry.value.fold(0.0, (sum, item) => sum + item.totalCalories);
+            buffer.writeln('<div class="meal-title">${mealEntry.key.frenchName} - ${mealTotal.toStringAsFixed(0)} kcal</div>');
+            buffer.writeln('<ul>');
+            for (final item in mealEntry.value) {
+              buffer.writeln('<li>${item.name} (${item.quantity?.toStringAsFixed(0)}g) &mdash; <b>${item.totalCalories.toStringAsFixed(0)} kcal</b></li>');
+            }
+            buffer.writeln('</ul>');
+          }
+        }
+      }
+      buffer.writeln('</div>');
+    }
 
-  buffer.writeln("📖 JOURNAL DÉTAILLÉ");
+    buffer.writeln('</body></html>');
+    return buffer.toString();
+  }
 
-  if (dailyFoods.isEmpty) {
-    buffer.writeln("   Aucun aliment enregistré pour cette journée.");
-  } else {
-    final groupedFoods = groupFoodItemsByMeal(dailyFoods);
-    for (var mealType in MealType.values) {
-      final items = groupedFoods[mealType]!;
-      if (items.isNotEmpty) {
-        buffer.writeln(); // Saut de ligne avant chaque repas
-        final mealCalories = items.fold(0.0, (sum, item) => sum + item.totalCalories);
-        buffer.writeln("  - ${mealType.frenchName} (${mealCalories.toStringAsFixed(0)} kcal) :");
-        
-        for (var item in items) {
-          final macrosDetail = "🔥 : ${item.totalCarbs.toStringAsFixed(0)} g | 💪 : ${item.totalProtein.toStringAsFixed(0)} g | 💧 : ${item.totalFat.toStringAsFixed(0)} g ";
-          buffer.writeln("    • ${item.name ?? 'N/A'} (${item.quantity?.toStringAsFixed(0)}g) : ${item.totalCalories.toStringAsFixed(0)} kcal ($macrosDetail)");
+  Future<String> generateWeeklyTextReport() async {
+    final buffer = StringBuffer();
+    buffer.writeln('Bilan Nutritionnel Détaillé de la Semaine - $userName\n');
+    final today = DateTime.now();
+    final dayFormat = DateFormat('EEEE d MMMM', 'fr_FR');
+
+    for (int i = 6; i >= 0; i--) {
+      final date = today.subtract(Duration(days: i));
+      final dailyLogByMeal = await DatabaseHelper.instance.getFoodLogForDate(date).then(groupFoodItemsByMeal);
+      
+      buffer.writeln('--- ${dayFormat.format(date)} ---');
+      if (dailyLogByMeal.values.every((list) => list.isEmpty)) {
+        buffer.writeln('Aucun aliment enregistré pour cette journée.\n');
+        continue;
+      }
+
+      for (final mealEntry in dailyLogByMeal.entries) {
+        if (mealEntry.value.isNotEmpty) {
+          final mealTotal = mealEntry.value.fold(0.0, (sum, item) => sum + item.totalCalories);
+          buffer.writeln('\n** ${mealEntry.key.frenchName} (${mealTotal.toStringAsFixed(0)} kcal) **');
+          for (final item in mealEntry.value) {
+            buffer.writeln('- ${item.name} (${item.quantity?.toStringAsFixed(0)}g): ${item.totalCalories.toStringAsFixed(0)} kcal');
+          }
+        }
+      }
+      buffer.writeln('');
+    }
+    return buffer.toString();
+  }
+
+  Future<String> generateWeeklyCsvReport() async {
+    List<List<dynamic>> rows = [];
+
+    // En-tête du fichier CSV
+    rows.add([
+      "Date", "Repas", "Aliment", "Quantité (g)",
+      "Calories", "Glucides (g)", "Protéines (g)", "Lipides (g)"
+    ]);
+
+    final today = DateTime.now();
+    for (int i = 6; i >= 0; i--) {
+      final date = today.subtract(Duration(days: i));
+      final dailyLogByMeal = await DatabaseHelper.instance.getFoodLogForDate(date).then(groupFoodItemsByMeal);
+
+      for (final mealEntry in dailyLogByMeal.entries) {
+        for (final item in mealEntry.value) {
+          rows.add([
+            DateFormat('yyyy-MM-dd').format(date),
+            mealEntry.key.frenchName,
+            item.name,
+            item.quantity,
+            item.totalCalories,
+            item.totalCarbs,
+            item.totalProtein,
+            item.totalFat
+          ]);
         }
       }
     }
-  }
+
+    if (rows.length <= 1) return ""; // Ne génère pas de fichier si seulement l'en-tête est présent
+
+    String csv = const ListToCsvConverter().convert(rows);
     
-    return buffer.toString();
+    // Sauvegarde et retourne le chemin du fichier
+    final directory = await getTemporaryDirectory();
+    final path = "${directory.path}/bilan_detaille_semaine.csv";
+    final file = File(path);
+    await file.writeAsString(csv);
+    return path;
   }
 }

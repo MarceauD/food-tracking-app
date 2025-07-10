@@ -9,6 +9,9 @@ import '../../screens/add_food_screen.dart';
 import '../../screens/meal_estimator_screen.dart';
 import '../../controllers/home_controller.dart'; 
 import 'package:provider/provider.dart';
+import 'package:flutter/material.dart';
+
+enum ExportFormat { text, html, csv }
 
 class HomeDialogs {
 
@@ -316,6 +319,46 @@ class HomeDialogs {
               },
             ),
           ],
+        );
+      },
+    );
+  }
+
+  static Future<ExportFormat?> showExportOptionsDialog(BuildContext context) {
+    return showModalBottomSheet<ExportFormat>(
+      context: context,
+      useSafeArea: true,
+      builder: (ctx) {
+        return SingleChildScrollView(
+          child: Padding(
+            padding: EdgeInsets.only(bottom: MediaQuery.of(ctx).viewPadding.bottom),
+            child: Wrap(
+              children: <Widget>[
+                const ListTile(
+                  title: Text('Choisir un format d\'export', style: TextStyle(fontWeight: FontWeight.bold)),
+                ),
+                const Divider(),
+                ListTile(
+                  leading: const Icon(Icons.article_outlined),
+                  title: const Text('Texte Brut'),
+                  subtitle: const Text('Pour un copier-coller simple'),
+                  onTap: () => Navigator.pop(ctx, ExportFormat.text),
+                ),
+                ListTile(
+                  leading: const Icon(Icons.html_outlined),
+                  title: const Text('Email (HTML)'),
+                  subtitle: const Text('Pour un affichage propre dans un mail'),
+                  onTap: () => Navigator.pop(ctx, ExportFormat.html),
+                ),
+                ListTile(
+                  leading: const Icon(Icons.table_chart_outlined),
+                  title: const Text('Tableur (CSV)'),
+                  subtitle: const Text('Pour une analyse dans Excel ou Sheets'),
+                  onTap: () => Navigator.pop(ctx, ExportFormat.csv),
+                ),
+              ],
+            ),
+          ),
         );
       },
     );
